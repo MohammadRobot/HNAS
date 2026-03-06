@@ -108,13 +108,97 @@ Install these tools before starting:
 - Node.js and npm
 - Firebase CLI
 
-Install Firebase CLI:
+### Firebase Setup Step By Step
+
+If you do not already have Firebase configured, follow these steps first.
+
+#### 1. Create A Firebase Account
+
+- go to the Firebase Console
+- sign in with your Google account
+- if this is your first time, complete the initial Firebase onboarding
+
+Firebase Console:
+`https://console.firebase.google.com`
+
+#### 2. Create A Firebase Project
+
+- click `Create a project`
+- enter a project name
+- choose whether to enable Google Analytics
+- finish project creation
+
+Keep the Firebase `projectId` because you will use it in CLI commands and local URLs.
+
+#### 3. Enable Firebase Authentication
+
+- open your Firebase project
+- go to `Build` -> `Authentication`
+- click `Get started`
+- enable the `Email/Password` sign-in provider
+
+This project uses Firebase Auth for staff login.
+
+#### 4. Create A Firestore Database
+
+- go to `Build` -> `Firestore Database`
+- click `Create database`
+- choose a database location
+- create the database
+
+Choose the location carefully because Firestore location cannot be changed later.
+
+#### 5. Register Your Flutter App In Firebase
+
+This repository currently contains the Flutter source code but not generated platform folders or Firebase app config.
+
+First generate the Flutter platform scaffolding:
+
+```bash
+cd apps/flutter_app
+flutter create .
+```
+
+Then register the app with Firebase. At minimum, register the `Web` app if you plan to run with `flutter run -d chrome`.
+
+#### 6. Install And Log In To Firebase CLI
+
+Install the CLI if you have not already:
 
 ```bash
 npm install -g firebase-tools
 ```
 
-### Install Dependencies
+Log in:
+
+```bash
+firebase login
+```
+
+#### 7. Link This Repository To Your Firebase Project
+
+From the repository root:
+
+```bash
+cd c:\Users\speed\vs\HNAS\hnas
+firebase use --add
+```
+
+Select the Firebase project you created in step 2.
+
+#### 8. Configure FlutterFire
+
+Generate Firebase config for the Flutter app:
+
+```bash
+dart pub global activate flutterfire_cli
+cd apps/flutter_app
+flutterfire configure --project <your-project-id>
+```
+
+Select the platforms you want to support. For this repository, `web` is the minimum useful choice.
+
+#### 9. Install Project Dependencies
 
 Install Flutter packages:
 
@@ -130,6 +214,21 @@ Install Functions packages:
 cd functions
 npm install
 cd ..
+```
+
+#### 10. Start The Project
+
+Start Firebase emulators:
+
+```bash
+firebase emulators:start
+```
+
+In another terminal, run Flutter web:
+
+```bash
+cd apps/flutter_app
+flutter run -d chrome --dart-define=HNAS_API_BASE_URL=http://127.0.0.1:5001/<project-id>/us-central1/api
 ```
 
 ## Running The Project
