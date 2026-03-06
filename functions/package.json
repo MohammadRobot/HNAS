@@ -1,0 +1,27 @@
+{
+  "name": "hnas-functions",
+  "private": true,
+  "engines": {
+    "node": "20"
+  },
+  "main": "lib/index.js",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint --ext .ts src",
+    "serve": "npm run build && firebase emulators:start --config ../firebase.json",
+    "deploy": "npm run build && firebase deploy --config ../firebase.json --only functions"
+  },
+  "dependencies": {
+    "express": "^4.21.1",
+    "firebase-admin": "^12.7.0",
+    "firebase-functions": "^5.1.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@typescript-eslint/eslint-plugin": "^7.18.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.0",
+    "eslint-config-google": "^0.14.0",
+    "typescript": "^5.6.3"
+  }
+}

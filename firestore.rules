@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function currentUserExists() {
+      return isAuthenticated() && exists(userPath(request.auth.uid));
+    }
+
+    function currentUser() {
+      return get(userPath(request.auth.uid)).data;
+    }
+
+    function hasRole(roles) {
+      return currentUserExists() && currentUser().role in roles;
+    }
+
+    function patientPath(patientId) {
+      return /databases/$(database)/documents/patients/$(patientId);
+    }
+
+    function patientExists(patientId) {
+      return exists(patientPath(patientId));
+    }
+
+    function patientDoc(patientId) {
+      return get(patientPath(patientId)).data;
+    }
+
+    function isAssignedNurse(patientId) {
+      return isAuthenticated() &&
+        patientExists(patientId) &&
+        patientDoc(patientId).assignedNurseIds is list &&
+        request.auth.uid in patientDoc(patientId).assignedNurseIds;
+    }
+
+    function isSupervisorOrAdminInSameAgency(patientId) {
+      return hasRole(['supervisor', 'admin']) &&
+        patientExists(patientId) &&
+        currentUser().agencyId is string &&
+        patientDoc(patientId).agencyId is string &&
+        currentUser().agencyId == patientDoc(patientId).agencyId;
+    }
+
+    function canReadPatient(patientId) {
+      return isAssignedNurse(patientId) || isSupervisorOrAdminInSameAgency(patientId);
+    }
+
+    function canReadAiQaLog(logData) {
+      return isAuthenticated() &&
+        (
+          hasRole(['supervisor', 'admin']) ||
+          (
+            hasRole(['nurse']) &&
+            logData.actorUid is string &&
+            logData.actorUid == request.auth.uid
+          )
+        );
+    }
+
+    match /users/{uid} {
+      allow read: if isAuthenticated() &&
+        (
+          request.auth.uid == uid ||
+          hasRole(['admin'])
+        );
+      allow write: if false;
+    }
+
+    match /patients/{patientId} {
+      allow read: if canReadPatient(patientId);
+      allow write: if false;
+
+      match /aiQaLogs/{logId} {
+        allow read: if canReadAiQaLog(resource.data);
+        allow write: if false;
+      }
+
+      match /{subcollection}/{docId=**} {
+        allow read: if subcollection != 'aiQaLogs' && canReadPatient(patientId);
+        allow write: if false;
+      }
+    }
+
+    match /procedureTemplates/{templateId} {
+      allow read: if isAuthenticated();
+      allow write: if hasRole(['admin', 'supervisor']);
+    }
+
+    match /aiQaLogs/{logId} {
+      allow read: if canReadAiQaLog(resource.data);
+      allow write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
