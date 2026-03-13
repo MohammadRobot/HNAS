@@ -18,8 +18,8 @@ import {
   computeRapidDose,
   type RapidDoseProfile,
 } from '../lib/insulin';
-import { firestore, toDateId } from '../lib/firestore';
-import { type DailyChecklist, type Task } from '../lib/types';
+import {firestore, toDateId} from '../lib/firestore';
+import {type DailyChecklist, type Task} from '../lib/types';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -142,7 +142,7 @@ const POST_FILTER_PATTERNS: RegExp[] = [
 
 const app = express();
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({limit: '1mb'}));
 app.use('/api', (req, _res, next) => {
   void getAuthContext(req as AuthedRequest).then(() => next()).catch(next);
 });
@@ -262,7 +262,7 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
   }
 
   patch.updatedAt = new Date().toISOString();
-  await firestore.collection('patients').doc(patientId).set(patch, { merge: true });
+  await firestore.collection('patients').doc(patientId).set(patch, {merge: true});
 
   res.status(200).json({
     ok: true,
@@ -281,17 +281,17 @@ app.post('/api/checklist/get', asyncRoute(async (req, res) => {
   await assertPatientAccess(context.user, patientId);
 
   const checklistRef = firestore
-    .collection('patients')
-    .doc(patientId)
-    .collection('dailyChecklists')
-    .doc(date);
+      .collection('patients')
+      .doc(patientId)
+      .collection('dailyChecklists')
+      .doc(date);
 
   const snapshot = await checklistRef.get();
   if (!snapshot.exists) {
     throw new HttpError(
-      404,
-      'not-found',
-      `Checklist "${date}" for patient "${patientId}" was not found.`,
+        404,
+        'not-found',
+        `Checklist "${date}" for patient "${patientId}" was not found.`,
     );
   }
 
@@ -318,18 +318,18 @@ app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
   await assertPatientAccess(context.user, patientId);
 
   const checklistRef = firestore
-    .collection('patients')
-    .doc(patientId)
-    .collection('dailyChecklists')
-    .doc(date);
+      .collection('patients')
+      .doc(patientId)
+      .collection('dailyChecklists')
+      .doc(date);
 
   const updatedResult = await firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(checklistRef);
     if (!snapshot.exists) {
       throw new HttpError(
-        404,
-        'not-found',
-        `Checklist "${date}" for patient "${patientId}" was not found.`,
+          404,
+          'not-found',
+          `Checklist "${date}" for patient "${patientId}" was not found.`,
       );
     }
 
@@ -366,15 +366,15 @@ app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
     applyTaskInputs(task, result, inputs);
 
     transaction.set(
-      checklistRef,
-      {
-        results,
-        updatedAt: nowIso,
-      },
-      { merge: true },
+        checklistRef,
+        {
+          results,
+          updatedAt: nowIso,
+        },
+        {merge: true},
     );
 
-    return { ...result };
+    return {...result};
   });
 
   res.status(200).json({
@@ -514,7 +514,8 @@ app.use((_req, res) => {
   });
 });
 
-app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+  void next;
   const normalized = normalizeError(error);
   if (normalized.statusCode >= 500) {
     logger.error('API request failed.', {
@@ -660,9 +661,9 @@ async function loadAiContext(input: LoadAiContextInput): Promise<AiContextBundle
     const checklistSnap = await checklistRef.get();
     if (!checklistSnap.exists) {
       throw new HttpError(
-        404,
-        'not-found',
-        `Checklist "${checklistDate}" for patient "${input.patientId}" was not found.`,
+          404,
+          'not-found',
+          `Checklist "${checklistDate}" for patient "${input.patientId}" was not found.`,
       );
     }
 
@@ -671,14 +672,14 @@ async function loadAiContext(input: LoadAiContextInput): Promise<AiContextBundle
     const task = tasks.find((candidate) => candidate.id === input.taskId);
     if (!task) {
       throw new HttpError(
-        404,
-        'not-found',
-        `Task "${input.taskId}" not found in checklist "${checklistDate}".`,
+          404,
+          'not-found',
+          `Task "${input.taskId}" not found in checklist "${checklistDate}".`,
       );
     }
 
     const result = toMutableTaskResults(checklistData.results)
-      .find((candidate) => candidate.taskId === input.taskId);
+        .find((candidate) => candidate.taskId === input.taskId);
 
     aiContext.taskContext = {
       checklistDate,
@@ -810,9 +811,9 @@ async function loadRelevantInsulinProfile(input: LoadInsulinProfileInput): Promi
 }
 
 async function loadInsulinProfileById(
-  patientRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>,
-  patientData: UnknownRecord,
-  profileId: string,
+    patientRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>,
+    patientData: UnknownRecord,
+    profileId: string,
 ): Promise<{
   profile: RapidDoseProfile;
   reference?: string;
@@ -858,7 +859,7 @@ function buildTemplateAiResponse(question: string, aiContext: AiContextBundle): 
   if (aiContext.taskContext) {
     const task = aiContext.taskContext.task;
     bullets.push(
-      `Task context: ${task.title} (${task.type}) on ${aiContext.taskContext.checklistDate}.`,
+        `Task context: ${task.title} (${task.type}) on ${aiContext.taskContext.checklistDate}.`,
     );
     if (task.scheduledTime) {
       bullets.push(`Scheduled time: ${task.scheduledTime}.`);
@@ -913,58 +914,58 @@ function buildDeterministicInsulinResponse(input: BuildInsulinResponseInput): Ai
   const profile = input.aiContext.insulinProfile;
   if (!profile || profile.type !== 'rapid') {
     return enforceStrictAiResponse(
-      {
-        answer_text: [
-          'I could not compute a deterministic insulin dose explanation.',
-          'A rapid insulin profile was not found in available context.',
-        ].join(' '),
-        answer_type: 'insufficient_context',
-        bullets: [
-          'Provide insulinProfileId for a rapid profile.',
-          'Include glucoseMgDl and optional mealTag for deterministic calculations.',
-        ],
-        disclaimer: DEFAULT_AI_DISCLAIMER,
-        references: input.aiContext.references,
-        safety_flags: ['missing_rapid_profile'],
-        next_actions: [
-          'Re-send request with patientId, rapid insulin profile, and glucoseMgDl.',
-          'Escalate to clinician for treatment decisions.',
-        ],
-      },
-      buildTemplateAiResponse(input.question, input.aiContext),
+        {
+          answer_text: [
+            'I could not compute a deterministic insulin dose explanation.',
+            'A rapid insulin profile was not found in available context.',
+          ].join(' '),
+          answer_type: 'insufficient_context',
+          bullets: [
+            'Provide insulinProfileId for a rapid profile.',
+            'Include glucoseMgDl and optional mealTag for deterministic calculations.',
+          ],
+          disclaimer: DEFAULT_AI_DISCLAIMER,
+          references: input.aiContext.references,
+          safety_flags: ['missing_rapid_profile'],
+          next_actions: [
+            'Re-send request with patientId, rapid insulin profile, and glucoseMgDl.',
+            'Escalate to clinician for treatment decisions.',
+          ],
+        },
+        buildTemplateAiResponse(input.question, input.aiContext),
     );
   }
 
   const glucose = firstFiniteNumber(
-    input.glucoseMgDl,
-    input.aiContext.taskContext?.result?.glucoseMgDl,
-    readRecordNumber(
-      asOptionalRecord(input.aiContext.taskContext?.result?.inputs),
-      'glucoseMgDl',
-    ),
+      input.glucoseMgDl,
+      input.aiContext.taskContext?.result?.glucoseMgDl,
+      readRecordNumber(
+          asOptionalRecord(input.aiContext.taskContext?.result?.inputs),
+          'glucoseMgDl',
+      ),
   );
 
   if (!Number.isFinite(glucose)) {
     return enforceStrictAiResponse(
-      {
-        answer_text: [
-          'I could not compute a deterministic insulin dose explanation.',
-          'A glucose value is required for sliding scale calculations.',
-        ].join(' '),
-        answer_type: 'insufficient_context',
-        bullets: [
-          'Provide glucoseMgDl in the request or task inputs.',
-          'Optional: include mealTag to apply meal base units.',
-        ],
-        disclaimer: DEFAULT_AI_DISCLAIMER,
-        references: input.aiContext.references,
-        safety_flags: ['missing_glucose'],
-        next_actions: [
-          'Capture current glucose and resend the request.',
-          'Escalate to clinician for treatment decisions.',
-        ],
-      },
-      buildTemplateAiResponse(input.question, input.aiContext),
+        {
+          answer_text: [
+            'I could not compute a deterministic insulin dose explanation.',
+            'A glucose value is required for sliding scale calculations.',
+          ].join(' '),
+          answer_type: 'insufficient_context',
+          bullets: [
+            'Provide glucoseMgDl in the request or task inputs.',
+            'Optional: include mealTag to apply meal base units.',
+          ],
+          disclaimer: DEFAULT_AI_DISCLAIMER,
+          references: input.aiContext.references,
+          safety_flags: ['missing_glucose'],
+          next_actions: [
+            'Capture current glucose and resend the request.',
+            'Escalate to clinician for treatment decisions.',
+          ],
+        },
+        buildTemplateAiResponse(input.question, input.aiContext),
     );
   }
 
@@ -986,25 +987,25 @@ function buildDeterministicInsulinResponse(input: BuildInsulinResponseInput): Ai
   const profileName = profile.label || profile.insulinName;
 
   return enforceStrictAiResponse(
-    {
-      answer_text: [
-        `Deterministic insulin explanation for profile "${profileName}":`,
-        `base ${dose.base} + sliding ${dose.sliding} = total ${dose.total} units.`,
-      ].join(' '),
-      answer_type: 'insulin_explanation',
-      bullets: [
-        `Glucose: ${glucose} mg/dL`,
-        `Meal tag: ${effectiveMealTag}`,
-        `Base units: ${dose.base}`,
-        `Sliding units: ${dose.sliding}`,
-        `Total units: ${dose.total}`,
-      ],
-      disclaimer: DEFAULT_AI_DISCLAIMER,
-      references: input.aiContext.references,
-      safety_flags: safetyFlags,
-      next_actions: buildInsulinNextActions(glucoseFlags),
-    },
-    buildTemplateAiResponse(input.question, input.aiContext),
+      {
+        answer_text: [
+          `Deterministic insulin explanation for profile "${profileName}":`,
+          `base ${dose.base} + sliding ${dose.sliding} = total ${dose.total} units.`,
+        ].join(' '),
+        answer_type: 'insulin_explanation',
+        bullets: [
+          `Glucose: ${glucose} mg/dL`,
+          `Meal tag: ${effectiveMealTag}`,
+          `Base units: ${dose.base}`,
+          `Sliding units: ${dose.sliding}`,
+          `Total units: ${dose.total}`,
+        ],
+        disclaimer: DEFAULT_AI_DISCLAIMER,
+        references: input.aiContext.references,
+        safety_flags: safetyFlags,
+        next_actions: buildInsulinNextActions(glucoseFlags),
+      },
+      buildTemplateAiResponse(input.question, input.aiContext),
   );
 }
 
@@ -1032,23 +1033,23 @@ function isInsulinDoseQuestion(question: string): boolean {
 
 function getExternalModelConfig(): ExternalModelConfig | null {
   const endpoint = firstNonEmptyString(
-    process.env.AI_MODEL_ENDPOINT,
-    process.env.EXTERNAL_MODEL_ENDPOINT,
+      process.env.AI_MODEL_ENDPOINT,
+      process.env.EXTERNAL_MODEL_ENDPOINT,
   );
   if (!endpoint) {
     return null;
   }
 
   const apiKey = firstNonEmptyString(
-    process.env.AI_MODEL_API_KEY,
-    process.env.EXTERNAL_MODEL_API_KEY,
+      process.env.AI_MODEL_API_KEY,
+      process.env.EXTERNAL_MODEL_API_KEY,
   );
   const modelName = firstNonEmptyString(
-    process.env.AI_MODEL_NAME,
-    process.env.EXTERNAL_MODEL_NAME,
+      process.env.AI_MODEL_NAME,
+      process.env.EXTERNAL_MODEL_NAME,
   ) ?? 'external-model';
 
-  return { endpoint, apiKey, modelName };
+  return {endpoint, apiKey, modelName};
 }
 
 interface TryExternalModelInput {
@@ -1059,7 +1060,7 @@ interface TryExternalModelInput {
 }
 
 async function tryExternalModelAnswer(
-  input: TryExternalModelInput,
+    input: TryExternalModelInput,
 ): Promise<AiAskResponse | null> {
   const payload = {
     model: input.config.modelName,
@@ -1188,10 +1189,10 @@ interface WriteAiLogInput {
 
 async function writeAiQaLog(input: WriteAiLogInput): Promise<void> {
   const logRef = firestore
-    .collection('patients')
-    .doc(input.patientId)
-    .collection('aiQaLogs')
-    .doc();
+      .collection('patients')
+      .doc(input.patientId)
+      .collection('aiQaLogs')
+      .doc();
   const nowIso = new Date().toISOString();
 
   const payload: UnknownRecord = {
@@ -1304,18 +1305,18 @@ function toSingleLineString(value: unknown): string | undefined {
 }
 
 function sanitizeStringArray(
-  value: unknown,
-  fallback: string[],
-  maxItems: number,
+    value: unknown,
+    fallback: string[],
+    maxItems: number,
 ): string[] {
   if (!Array.isArray(value)) {
     return uniqueStrings(fallback).slice(0, maxItems);
   }
 
   const cleaned = value
-    .filter((item): item is string => typeof item === 'string')
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+      .filter((item): item is string => typeof item === 'string')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
 
   return uniqueStrings(cleaned).slice(0, maxItems);
 }
@@ -1329,9 +1330,9 @@ function resolveAgencyForWrite(user: AuthzUserProfile, requestedAgencyId?: strin
     const supervisorAgencyId = requireUserAgencyId(user);
     if (requestedAgencyId && requestedAgencyId !== supervisorAgencyId) {
       throw new HttpError(
-        403,
-        'permission-denied',
-        'Supervisor cannot create or update records outside their agency.',
+          403,
+          'permission-denied',
+          'Supervisor cannot create or update records outside their agency.',
       );
     }
     return supervisorAgencyId;
@@ -1360,9 +1361,9 @@ function readAndValidateStatus(body: UnknownRecord): string {
   const status = readRequiredString(body, 'status').toLowerCase();
   if (!UPDATE_TASK_ALLOWED_STATUSES.has(status)) {
     throw new HttpError(
-      400,
-      'invalid-argument',
-      `status must be one of: ${Array.from(UPDATE_TASK_ALLOWED_STATUSES).join(', ')}.`,
+        400,
+        'invalid-argument',
+        `status must be one of: ${Array.from(UPDATE_TASK_ALLOWED_STATUSES).join(', ')}.`,
     );
   }
   return status;
@@ -1442,7 +1443,7 @@ function toMutableTaskResults(value: unknown): MutableTaskResult[] {
     if (typeof item.taskId !== 'string' || typeof item.type !== 'string') {
       continue;
     }
-    results.push({ ...(item as UnknownRecord) } as MutableTaskResult);
+    results.push({...(item as UnknownRecord)} as MutableTaskResult);
   }
 
   return results;

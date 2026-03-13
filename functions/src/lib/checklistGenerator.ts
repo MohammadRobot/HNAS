@@ -1,4 +1,4 @@
-import { type DateId, type Task } from './types';
+import {type DateId, type Task} from './types';
 
 export interface ChecklistSourceRecord {
   id: string;
@@ -113,8 +113,8 @@ function buildRapidInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
         scheduledTime: entry.time,
         plannedUnits: entry.units,
         notes: mergeNotes(
-          readString(profile.notes),
-          'Requires glucose input before dosing.',
+            readString(profile.notes),
+            'Requires glucose input before dosing.',
         ),
       });
     });
@@ -171,7 +171,7 @@ function collectEntries(target: ScheduleEntry[], value: unknown): void {
   if (typeof value === 'string') {
     const time = normalizeTime(value);
     if (time) {
-      target.push({ time });
+      target.push({time});
     }
     return;
   }
@@ -186,7 +186,7 @@ function collectEntries(target: ScheduleEntry[], value: unknown): void {
   }
 
   const time = normalizeTime(
-    readString(value.time) ??
+      readString(value.time) ??
       readString(value.at) ??
       readString(value.scheduledTime) ??
       readString(value.startTime),
@@ -198,7 +198,7 @@ function collectEntries(target: ScheduleEntry[], value: unknown): void {
   target.push({
     time,
     units: readNumber(
-      value.units ??
+        value.units ??
         value.plannedUnits ??
         value.fixedUnits ??
         value.doseUnits ??
@@ -238,7 +238,11 @@ function buildTaskId(prefix: string, sourceId: string, time: string, index: numb
   return `${prefix}_${safeSourceId}_${safeTime}_${index + 1}`;
 }
 
-function normalizeTime(value: string): string | null {
+function normalizeTime(value: string | undefined): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
   const trimmed = value.trim();
   if (/^\d{1,2}:\d{2}$/.test(trimmed)) {
     const [hour, minute] = trimmed.split(':');
@@ -280,4 +284,3 @@ function mergeNotes(primary?: string, secondary?: string): string | undefined {
   }
   return primaryValue ?? secondaryValue;
 }
-

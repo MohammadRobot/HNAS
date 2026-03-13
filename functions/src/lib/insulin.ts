@@ -1,4 +1,4 @@
-import { type InsulinProfileRapid } from './types';
+import {type InsulinProfileRapid} from './types';
 
 const LOW_GLUCOSE_MGDL = 70;
 const HIGH_GLUCOSE_MGDL = 250;
@@ -18,8 +18,8 @@ export interface RapidDoseBreakdown {
 }
 
 export function computeSlidingScale(
-  glucoseMgdl: number,
-  slidingScaleMgdl: number[],
+    glucoseMgdl: number,
+    slidingScaleMgdl: number[],
 ): number {
   if (!Number.isFinite(glucoseMgdl)) {
     return 0;
@@ -38,24 +38,24 @@ export function computeSlidingScale(
 }
 
 export function computeRapidDose(
-  mealTag: string,
-  glucoseMgdl: number,
-  rapidProfile: RapidDoseProfile,
+    mealTag: string,
+    glucoseMgdl: number,
+    rapidProfile: RapidDoseProfile,
 ): RapidDoseBreakdown {
   const normalizedMealTag = normalizeMealTag(mealTag);
   const base = resolveMealBaseDose(normalizedMealTag, rapidProfile);
   const sliding = computeSlidingScale(
-    glucoseMgdl,
+      glucoseMgdl,
     Array.isArray(rapidProfile.slidingScaleMgdl) ? rapidProfile.slidingScaleMgdl : [],
   );
   const total = roundToTwo(base + sliding);
 
-  return { base, sliding, total };
+  return {base, sliding, total};
 }
 
 export function applySafetyFlags(glucoseMgdl: number): {low: boolean; high: boolean} {
   if (!Number.isFinite(glucoseMgdl)) {
-    return { low: false, high: false };
+    return {low: false, high: false};
   }
 
   return {

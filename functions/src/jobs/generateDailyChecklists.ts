@@ -3,12 +3,12 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
+import {onSchedule} from 'firebase-functions/v2/scheduler';
 import {
   type ChecklistSourceRecord,
   generateChecklistTasks,
 } from '../lib/checklistGenerator';
-import { firestore, patientSubcollectionRef, toDateId } from '../lib/firestore';
+import {firestore, patientSubcollectionRef, toDateId} from '../lib/firestore';
 import {
   type DailyChecklist,
   type Issue,
@@ -23,77 +23,77 @@ const INSULIN_PROFILES_SUBCOLLECTION = 'insulinProfiles';
 const DAILY_CHECKLISTS_SUBCOLLECTION = 'dailyChecklists';
 
 export const generateDailyChecklists = onSchedule(
-  {
-    schedule: '0 0 * * *',
-    timeZone: 'Etc/UTC',
-  },
-  async () => {
-    const dateId = toDateId(new Date());
-    const patientsSnapshot = await firestore
-      .collection(PATIENTS_COLLECTION)
-      .where('active', '==', true)
-      .get();
+    {
+      schedule: '0 0 * * *',
+      timeZone: 'Etc/UTC',
+    },
+    async () => {
+      const dateId = toDateId(new Date());
+      const patientsSnapshot = await firestore
+          .collection(PATIENTS_COLLECTION)
+          .where('active', '==', true)
+          .get();
 
-    logger.info('Starting daily checklist generation.', {
-      dateId,
-      patientCount: patientsSnapshot.size,
-    });
+      logger.info('Starting daily checklist generation.', {
+        dateId,
+        patientCount: patientsSnapshot.size,
+      });
 
-    for (const patientDoc of patientsSnapshot.docs) {
-      const patientId = patientDoc.id;
+      for (const patientDoc of patientsSnapshot.docs) {
+        const patientId = patientDoc.id;
 
-      try {
-        const [medicinesSnapshot, proceduresSnapshot, insulinSnapshot] = await Promise.all([
-          patientSubcollectionRef(patientId, MEDICINES_SUBCOLLECTION)
-            .where('active', '==', true)
-            .get(),
-          patientSubcollectionRef(patientId, PROCEDURES_SUBCOLLECTION)
-            .where('active', '==', true)
-            .get(),
-          patientSubcollectionRef(patientId, INSULIN_PROFILES_SUBCOLLECTION)
-            .where('active', '==', true)
-            .get(),
-        ]);
+        try {
+          const [medicinesSnapshot, proceduresSnapshot, insulinSnapshot] = await Promise.all([
+            patientSubcollectionRef(patientId, MEDICINES_SUBCOLLECTION)
+                .where('active', '==', true)
+                .get(),
+            patientSubcollectionRef(patientId, PROCEDURES_SUBCOLLECTION)
+                .where('active', '==', true)
+                .get(),
+            patientSubcollectionRef(patientId, INSULIN_PROFILES_SUBCOLLECTION)
+                .where('active', '==', true)
+                .get(),
+          ]);
 
-        const medicines = medicinesSnapshot.docs.map(toSourceRecord);
-        const procedures = proceduresSnapshot.docs.map(toSourceRecord);
-        const insulinProfiles = resolveInsulinProfiles(
-          patientDoc.data(),
-          insulinSnapshot.docs.map(toSourceRecord),
-        );
+          const medicines = medicinesSnapshot.docs.map(toSourceRecord);
+          const procedures = proceduresSnapshot.docs.map(toSourceRecord);
+          const insulinProfiles = resolveInsulinProfiles(
+              patientDoc.data(),
+              insulinSnapshot.docs.map(toSourceRecord),
+          );
 
-        const tasks = generateChecklistTasks({
-          patientId,
-          dateId,
-          medicines,
-          procedures,
-          insulinProfiles,
-        });
+          const tasks = generateChecklistTasks({
+            patientId,
+            dateId,
+            medicines,
+            procedures,
+            insulinProfiles,
+          });
 
-        await upsertDailyChecklist({
-          patientId,
-          dateId,
-          tasks,
-        });
+          await upsertDailyChecklist({
+            patientId,
+            dateId,
+            tasks,
+          });
 
-        logger.info('Generated daily checklist.', {
-          patientId,
-          dateId,
-          taskCount: tasks.length,
-        });
-      } catch (error) {
-        logger.error('Failed to generate daily checklist for patient.', {
-          patientId,
-          dateId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+          logger.info('Generated daily checklist.', {
+            patientId,
+            dateId,
+            taskCount: tasks.length,
+          });
+        } catch (error) {
+          logger.error('Failed to generate daily checklist for patient.', {
+            patientId,
+            dateId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
-    }
-  },
+    },
 );
 
 function toSourceRecord(
-  snapshot: QueryDocumentSnapshot<DocumentData>,
+    snapshot: QueryDocumentSnapshot<DocumentData>,
 ): ChecklistSourceRecord {
   return {
     id: snapshot.id,
@@ -102,8 +102,8 @@ function toSourceRecord(
 }
 
 function resolveInsulinProfiles(
-  patientDocData: DocumentData,
-  subcollectionProfiles: ChecklistSourceRecord[],
+    patientDocData: DocumentData,
+    subcollectionProfiles: ChecklistSourceRecord[],
 ): ChecklistSourceRecord[] {
   const inlineProfiles = extractInlineInsulinProfiles(patientDocData);
   if (subcollectionProfiles.length === 0) {
@@ -133,9 +133,9 @@ function extractInlineInsulinProfiles(patientDocData: DocumentData): ChecklistSo
       return;
     }
 
-    const id = typeof rawProfile.id === 'string' && rawProfile.id.length > 0
-      ? rawProfile.id
-      : `inline_${index + 1}`;
+    const id = typeof rawProfile.id === 'string' && rawProfile.id.length > 0 ?
+      rawProfile.id :
+      `inline_${index + 1}`;
     const active = typeof rawProfile.active !== 'boolean' || rawProfile.active;
     if (!active) {
       return;
@@ -158,23 +158,23 @@ interface UpsertChecklistInput {
 
 async function upsertDailyChecklist(input: UpsertChecklistInput): Promise<void> {
   const checklistRef = patientSubcollectionRef<DailyChecklist>(
-    input.patientId,
-    DAILY_CHECKLISTS_SUBCOLLECTION,
+      input.patientId,
+      DAILY_CHECKLISTS_SUBCOLLECTION,
   ).doc(input.dateId);
 
   await firestore.runTransaction(async (transaction) => {
     const existingSnapshot = await transaction.get(checklistRef);
-    const existingData = existingSnapshot.exists
-      ? (existingSnapshot.data() as Partial<DailyChecklist>)
-      : undefined;
+    const existingData = existingSnapshot.exists ?
+      (existingSnapshot.data() as Partial<DailyChecklist>) :
+      undefined;
 
     const now = new Date().toISOString();
     const taskIds = new Set(input.tasks.map((task) => task.id));
     const results = readExistingResults(existingData?.results, taskIds);
     const issues = readExistingIssues(existingData?.issues);
-    const createdAt = typeof existingData?.createdAt === 'string'
-      ? existingData.createdAt
-      : now;
+    const createdAt = typeof existingData?.createdAt === 'string' ?
+      existingData.createdAt :
+      now;
 
     const checklist: DailyChecklist = {
       id: input.dateId,
@@ -187,13 +187,13 @@ async function upsertDailyChecklist(input: UpsertChecklistInput): Promise<void> 
       updatedAt: now,
     };
 
-    transaction.set(checklistRef, checklist, { merge: false });
+    transaction.set(checklistRef, checklist, {merge: false});
   });
 }
 
 function readExistingResults(
-  existingResults: unknown,
-  taskIds: Set<string>,
+    existingResults: unknown,
+    taskIds: Set<string>,
 ): TaskResult[] {
   if (!Array.isArray(existingResults)) {
     return [];

@@ -1,4 +1,4 @@
-import { getApps, initializeApp } from 'firebase-admin/app';
+import {getApps, initializeApp} from 'firebase-admin/app';
 import {
   type CollectionReference,
   type DocumentData,
@@ -11,8 +11,8 @@ const app = getApps().length > 0 ? getApps()[0] : initializeApp();
 export const firestore = getFirestore(app);
 
 export function patientSubcollectionRef<T extends DocumentData = DocumentData>(
-  patientId: string,
-  subcollectionName: string,
+    patientId: string,
+    subcollectionName: string,
 ): CollectionReference<T> {
   return firestore.collection('patients').doc(patientId).collection(subcollectionName) as CollectionReference<T>;
 }

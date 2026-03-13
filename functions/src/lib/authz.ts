@@ -1,5 +1,5 @@
-import { getAuth, type DecodedIdToken } from 'firebase-admin/auth';
-import { firestore } from './firestore';
+import {getAuth, type DecodedIdToken} from 'firebase-admin/auth';
+import {firestore} from './firestore';
 
 type HeaderValue = string | string[] | undefined;
 
@@ -75,16 +75,16 @@ export async function getUserProfile(uid: string): Promise<AuthzUserProfile> {
 export function assertRole(user: AuthzUserProfile, allowedRoles: readonly string[]): void {
   if (!allowedRoles.includes(user.role)) {
     throw new HttpError(
-      403,
-      'permission-denied',
-      `Role "${user.role}" is not allowed. Required: ${allowedRoles.join(', ')}.`,
+        403,
+        'permission-denied',
+        `Role "${user.role}" is not allowed. Required: ${allowedRoles.join(', ')}.`,
     );
   }
 }
 
 export async function assertPatientAccess(
-  user: AuthzUserProfile,
-  patientId: string,
+    user: AuthzUserProfile,
+    patientId: string,
 ): Promise<void> {
   if (!patientId) {
     throw new HttpError(400, 'invalid-argument', 'patientId is required.');
@@ -108,17 +108,17 @@ export async function assertPatientAccess(
   if (user.role === 'supervisor' || user.role === 'admin') {
     if (typeof user.agencyId !== 'string' || user.agencyId.length === 0) {
       throw new HttpError(
-        403,
-        'permission-denied',
-        'Supervisor/admin user profile is missing agencyId.',
+          403,
+          'permission-denied',
+          'Supervisor/admin user profile is missing agencyId.',
       );
     }
 
     if (typeof patient.agencyId !== 'string' || patient.agencyId !== user.agencyId) {
       throw new HttpError(
-        403,
-        'permission-denied',
-        'Supervisor/admin can only access patients in the same agency.',
+          403,
+          'permission-denied',
+          'Supervisor/admin can only access patients in the same agency.',
       );
     }
     return;
@@ -128,8 +128,8 @@ export async function assertPatientAccess(
 }
 
 function readHeader(
-  headers: Record<string, HeaderValue> | undefined,
-  targetName: string,
+    headers: Record<string, HeaderValue> | undefined,
+    targetName: string,
 ): string | null {
   if (!headers) {
     return null;

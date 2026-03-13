@@ -1,5 +1,5 @@
 import * as logger from 'firebase-functions/logger';
-import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import {onDocumentUpdated} from 'firebase-functions/v2/firestore';
 import {
   applySafetyFlags,
   computeRapidDose,
@@ -10,8 +10,13 @@ import {
   createIssue,
   validateRequiredInputs,
 } from '../lib/rulesEngine';
-import { firestore } from '../lib/firestore';
-import { type DailyChecklist, type Issue, type Task } from '../lib/types';
+import {firestore} from '../lib/firestore';
+import {
+  type DailyChecklist,
+  type Issue,
+  type RapidInsulinTask,
+  type Task,
+} from '../lib/types';
 
 const CHECKLIST_PATH = 'patients/{patientId}/dailyChecklists/{dateId}';
 const TASK_LOGS_SUBCOLLECTION = 'taskLogs';
@@ -64,214 +69,214 @@ interface ResultEntry {
 }
 
 interface RapidDoseCandidate {
-  task: Task;
+  task: RapidInsulinTask;
   result: MutableTaskResult;
 }
 
 export const onTaskUpdate = onDocumentUpdated(
-  CHECKLIST_PATH,
-  async (event): Promise<void> => {
-    const snapshot = event.data;
-    if (!snapshot) {
-      return;
-    }
-
-    const beforeData = snapshot.before.data() as Partial<DailyChecklist> | undefined;
-    const afterData = snapshot.after.data() as Partial<DailyChecklist> | undefined;
-    if (!afterData) {
-      return;
-    }
-
-    const patientId = event.params.patientId;
-    const dateId = event.params.dateId;
-
-    const tasks = toTaskList(afterData.tasks);
-    const taskById = new Map<string, Task>(tasks.map((task) => [task.id, task]));
-    const beforeResultsById = toResultMap(toMutableTaskResults(beforeData?.results));
-    const afterResultEntries = toResultEntries(toMutableTaskResults(afterData.results));
-
-    const changedTaskIds = detectChangedTaskIds(beforeResultsById, afterResultEntries);
-    if (changedTaskIds.size === 0) {
-      return;
-    }
-
-    const nowIso = new Date().toISOString();
-    let resultsChanged = false;
-    const rapidCandidates: RapidDoseCandidate[] = [];
-    const newTaskLogs: TaskLogEntry[] = [];
-    const issueCandidates: Issue[] = [];
-
-    for (const taskId of changedTaskIds) {
-      const task = taskById.get(taskId);
-      const afterEntry = afterResultEntries.map.get(taskId);
-      if (!task || !afterEntry) {
-        continue;
+    CHECKLIST_PATH,
+    async (event): Promise<void> => {
+      const snapshot = event.data;
+      if (!snapshot) {
+        return;
       }
 
-      const beforeResult = beforeResultsById.get(taskId);
-      const result = afterEntry.result;
-
-      if (normalizeStatus(result.status) === 'done') {
-        result.status = 'completed';
-        resultsChanged = true;
+      const beforeData = snapshot.before.data() as Partial<DailyChecklist> | undefined;
+      const afterData = snapshot.after.data() as Partial<DailyChecklist> | undefined;
+      if (!afterData) {
+        return;
       }
 
-      if (didTransitionToDone(beforeResult, result)) {
-        const completedAt = ensureCompletedAt(result, nowIso);
-        if (result.completedAt !== completedAt) {
-          result.completedAt = completedAt;
+      const patientId = event.params.patientId;
+      const dateId = event.params.dateId;
+
+      const tasks = toTaskList(afterData.tasks);
+      const taskById = new Map<string, Task>(tasks.map((task) => [task.id, task]));
+      const beforeResultsById = toResultMap(toMutableTaskResults(beforeData?.results));
+      const afterResultEntries = toResultEntries(toMutableTaskResults(afterData.results));
+
+      const changedTaskIds = detectChangedTaskIds(beforeResultsById, afterResultEntries);
+      if (changedTaskIds.size === 0) {
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      let resultsChanged = false;
+      const rapidCandidates: RapidDoseCandidate[] = [];
+      const newTaskLogs: TaskLogEntry[] = [];
+      const issueCandidates: Issue[] = [];
+
+      for (const taskId of changedTaskIds) {
+        const task = taskById.get(taskId);
+        const afterEntry = afterResultEntries.map.get(taskId);
+        if (!task || !afterEntry) {
+          continue;
+        }
+
+        const beforeResult = beforeResultsById.get(taskId);
+        const result = afterEntry.result;
+
+        if (normalizeStatus(result.status) === 'done') {
+          result.status = 'completed';
           resultsChanged = true;
         }
 
-        const validation = validateRequiredInputs(buildTaskForValidation(task, result));
-        const late = checkLate(task.scheduledTime, completedAt, 30);
-        if (late && normalizeStatus(result.status) !== 'late') {
-          result.status = 'late';
-          resultsChanged = true;
+        if (didTransitionToDone(beforeResult, result)) {
+          const completedAt = ensureCompletedAt(result, nowIso);
+          if (result.completedAt !== completedAt) {
+            result.completedAt = completedAt;
+            resultsChanged = true;
+          }
+
+          const validation = validateRequiredInputs(buildTaskForValidation(task, result));
+          const late = checkLate(task.scheduledTime, completedAt, 30);
+          if (late && normalizeStatus(result.status) !== 'late') {
+            result.status = 'late';
+            resultsChanged = true;
+          }
+
+          newTaskLogs.push(
+              buildCompletionLog({
+                patientId,
+                dateId,
+                task,
+                completedAt,
+                late,
+                missingInputs: validation.missing,
+                nowIso,
+              }),
+          );
+
+          if (late) {
+            issueCandidates.push(
+                createIssue(patientId, {
+                  id: sanitizeId(`late_${dateId}_${task.id}`),
+                  code: 'late',
+                  checklistDateId: dateId,
+                  taskId: task.id,
+                  source: 'task',
+                  status: 'open',
+                  title: `Late task: ${task.title}`,
+                  description: buildLateDescription(task, completedAt),
+                  createdAt: nowIso,
+                }),
+            );
+          }
         }
 
-        newTaskLogs.push(
-          buildCompletionLog({
-            patientId,
-            dateId,
-            task,
-            completedAt,
-            late,
-            missingInputs: validation.missing,
-            nowIso,
-          }),
+        if (task.type === 'insulin_rapid' && didGlucoseChange(beforeResult, result)) {
+          rapidCandidates.push({task, result});
+        }
+      }
+
+      if (rapidCandidates.length > 0) {
+        const profiles = await loadRapidProfiles(patientId);
+        for (const candidate of rapidCandidates) {
+          const profile = profiles.get(candidate.task.insulinProfileId);
+          if (!profile) {
+            logger.warn('Rapid profile not found while processing task update.', {
+              patientId,
+              dateId,
+              taskId: candidate.task.id,
+              insulinProfileId: candidate.task.insulinProfileId,
+            });
+            continue;
+          }
+
+          const glucose = readFiniteNumber(candidate.result.glucoseMgDl);
+          if (!Number.isFinite(glucose)) {
+            continue;
+          }
+
+          const mealTag = readMealTag(candidate.task, candidate.result);
+          const dose = computeRapidDose(mealTag, glucose, profile);
+          resultsChanged = applyRapidDoseToResult(candidate.result, dose) || resultsChanged;
+
+          const flags = applySafetyFlags(glucose);
+          if (flags.low) {
+            issueCandidates.push(
+                createIssue(patientId, {
+                  id: sanitizeId(`low_glucose_${dateId}_${candidate.task.id}`),
+                  code: 'low_glucose',
+                  checklistDateId: dateId,
+                  taskId: candidate.task.id,
+                  source: 'task',
+                  status: 'open',
+                  title: 'Low glucose detected',
+                  description: `Rapid insulin task "${candidate.task.title}" has low glucose (${glucose} mg/dL).`,
+                  createdAt: nowIso,
+                }),
+            );
+          } else if (flags.high) {
+            issueCandidates.push(
+                createIssue(patientId, {
+                  id: sanitizeId(`high_glucose_${dateId}_${candidate.task.id}`),
+                  code: 'high_glucose',
+                  checklistDateId: dateId,
+                  taskId: candidate.task.id,
+                  source: 'task',
+                  status: 'open',
+                  title: 'High glucose detected',
+                  description: `Rapid insulin task "${candidate.task.title}" has high glucose (${glucose} mg/dL).`,
+                  createdAt: nowIso,
+                }),
+            );
+          }
+        }
+      }
+
+      const existingIssues = toIssueList(afterData.issues);
+      const uniqueIssueCandidates = dedupeById(issueCandidates);
+      const newIssues = uniqueIssueCandidates.filter(
+          (candidate) => !existingIssues.some((issue) => issue.id === candidate.id),
+      );
+      const mergedIssues = newIssues.length > 0 ?
+      existingIssues.concat(newIssues) :
+      existingIssues;
+
+      const taskLogs = dedupeById(newTaskLogs);
+      const shouldUpdateChecklist = resultsChanged || newIssues.length > 0;
+      if (!shouldUpdateChecklist && taskLogs.length === 0) {
+        return;
+      }
+
+      const checklistRef = snapshot.after.ref;
+      const patientRef = checklistRef.parent.parent;
+      if (!patientRef) {
+        return;
+      }
+
+      const batch = firestore.batch();
+      if (shouldUpdateChecklist) {
+        batch.set(
+            checklistRef,
+            {
+              results: afterResultEntries.list,
+              issues: mergedIssues,
+              updatedAt: nowIso,
+            },
+            {merge: true},
         );
-
-        if (late) {
-          issueCandidates.push(
-            createIssue(patientId, {
-              id: sanitizeId(`late_${dateId}_${task.id}`),
-              code: 'late',
-              checklistDateId: dateId,
-              taskId: task.id,
-              source: 'task',
-              status: 'open',
-              title: `Late task: ${task.title}`,
-              description: buildLateDescription(task, completedAt),
-              createdAt: nowIso,
-            }),
-          );
-        }
       }
 
-      if (task.type === 'insulin_rapid' && didGlucoseChange(beforeResult, result)) {
-        rapidCandidates.push({ task, result });
+      for (const issue of newIssues) {
+        batch.set(
+            patientRef.collection(ISSUES_SUBCOLLECTION).doc(issue.id),
+            issue,
+            {merge: true},
+        );
       }
-    }
 
-    if (rapidCandidates.length > 0) {
-      const profiles = await loadRapidProfiles(patientId);
-      for (const candidate of rapidCandidates) {
-        const profile = profiles.get(candidate.task.insulinProfileId);
-        if (!profile) {
-          logger.warn('Rapid profile not found while processing task update.', {
-            patientId,
-            dateId,
-            taskId: candidate.task.id,
-            insulinProfileId: candidate.task.insulinProfileId,
-          });
-          continue;
-        }
-
-        const glucose = readFiniteNumber(candidate.result.glucoseMgDl);
-        if (!Number.isFinite(glucose)) {
-          continue;
-        }
-
-        const mealTag = readMealTag(candidate.task, candidate.result);
-        const dose = computeRapidDose(mealTag, glucose, profile);
-        resultsChanged = applyRapidDoseToResult(candidate.result, dose) || resultsChanged;
-
-        const flags = applySafetyFlags(glucose);
-        if (flags.low) {
-          issueCandidates.push(
-            createIssue(patientId, {
-              id: sanitizeId(`low_glucose_${dateId}_${candidate.task.id}`),
-              code: 'low_glucose',
-              checklistDateId: dateId,
-              taskId: candidate.task.id,
-              source: 'task',
-              status: 'open',
-              title: 'Low glucose detected',
-              description: `Rapid insulin task "${candidate.task.title}" has low glucose (${glucose} mg/dL).`,
-              createdAt: nowIso,
-            }),
-          );
-        } else if (flags.high) {
-          issueCandidates.push(
-            createIssue(patientId, {
-              id: sanitizeId(`high_glucose_${dateId}_${candidate.task.id}`),
-              code: 'high_glucose',
-              checklistDateId: dateId,
-              taskId: candidate.task.id,
-              source: 'task',
-              status: 'open',
-              title: 'High glucose detected',
-              description: `Rapid insulin task "${candidate.task.title}" has high glucose (${glucose} mg/dL).`,
-              createdAt: nowIso,
-            }),
-          );
-        }
+      for (const taskLog of taskLogs) {
+        batch.set(
+            patientRef.collection(TASK_LOGS_SUBCOLLECTION).doc(taskLog.id),
+            taskLog,
+            {merge: true},
+        );
       }
-    }
 
-    const existingIssues = toIssueList(afterData.issues);
-    const uniqueIssueCandidates = dedupeById(issueCandidates);
-    const newIssues = uniqueIssueCandidates.filter(
-      (candidate) => !existingIssues.some((issue) => issue.id === candidate.id),
-    );
-    const mergedIssues = newIssues.length > 0
-      ? existingIssues.concat(newIssues)
-      : existingIssues;
-
-    const taskLogs = dedupeById(newTaskLogs);
-    const shouldUpdateChecklist = resultsChanged || newIssues.length > 0;
-    if (!shouldUpdateChecklist && taskLogs.length === 0) {
-      return;
-    }
-
-    const checklistRef = snapshot.after.ref;
-    const patientRef = checklistRef.parent.parent;
-    if (!patientRef) {
-      return;
-    }
-
-    const batch = firestore.batch();
-    if (shouldUpdateChecklist) {
-      batch.set(
-        checklistRef,
-        {
-          results: afterResultEntries.list,
-          issues: mergedIssues,
-          updatedAt: nowIso,
-        },
-        { merge: true },
-      );
-    }
-
-    for (const issue of newIssues) {
-      batch.set(
-        patientRef.collection(ISSUES_SUBCOLLECTION).doc(issue.id),
-        issue,
-        { merge: true },
-      );
-    }
-
-    for (const taskLog of taskLogs) {
-      batch.set(
-        patientRef.collection(TASK_LOGS_SUBCOLLECTION).doc(taskLog.id),
-        taskLog,
-        { merge: true },
-      );
-    }
-
-    await batch.commit();
-  },
+      await batch.commit();
+    },
 );
 
 function buildTaskForValidation(task: Task, result: MutableTaskResult): Task {
@@ -299,8 +304,8 @@ function ensureCompletedAt(result: MutableTaskResult, fallback: string): string 
 }
 
 function didTransitionToDone(
-  beforeResult: MutableTaskResult | undefined,
-  afterResult: MutableTaskResult,
+    beforeResult: MutableTaskResult | undefined,
+    afterResult: MutableTaskResult,
 ): boolean {
   return !isDoneStatus(beforeResult?.status) && isDoneStatus(afterResult.status);
 }
@@ -330,8 +335,8 @@ function normalizeStatus(status: unknown): ResultStatus {
 }
 
 function didGlucoseChange(
-  beforeResult: MutableTaskResult | undefined,
-  afterResult: MutableTaskResult,
+    beforeResult: MutableTaskResult | undefined,
+    afterResult: MutableTaskResult,
 ): boolean {
   const before = readFiniteNumber(beforeResult?.glucoseMgDl);
   const after = readFiniteNumber(afterResult.glucoseMgDl);
@@ -346,8 +351,8 @@ function didGlucoseChange(
 }
 
 function applyRapidDoseToResult(
-  result: MutableTaskResult,
-  dose: {base: number; sliding: number; total: number},
+    result: MutableTaskResult,
+    dose: {base: number; sliding: number; total: number},
 ): boolean {
   let changed = false;
   changed = writeNumber(result, 'baseUnits', dose.base) || changed;
@@ -358,9 +363,9 @@ function applyRapidDoseToResult(
 }
 
 function writeNumber(
-  target: MutableTaskResult,
-  key: 'baseUnits' | 'slidingUnits' | 'totalUnits' | 'deliveredUnits',
-  next: number,
+    target: MutableTaskResult,
+    key: 'baseUnits' | 'slidingUnits' | 'totalUnits' | 'deliveredUnits',
+    next: number,
 ): boolean {
   const current = readFiniteNumber(target[key]);
   if (Number.isFinite(current) && numbersEqual(current, next)) {
@@ -399,7 +404,7 @@ function buildCompletionLog(input: {
 }): TaskLogEntry {
   const status = input.late ? 'late' : 'completed';
   const id = sanitizeId(
-    `task_completed_${input.dateId}_${input.task.id}_${toLogTimeKey(input.completedAt)}`,
+      `task_completed_${input.dateId}_${input.task.id}_${toLogTimeKey(input.completedAt)}`,
   );
 
   return {
@@ -429,7 +434,7 @@ function readMealTag(task: Task, result: MutableTaskResult): string {
     return fromResult;
   }
 
-  const fromTask = readNonEmptyString((task as Record<string, unknown>).mealTag);
+  const fromTask = readNonEmptyString((task as unknown as Record<string, unknown>).mealTag);
   if (fromTask) {
     return fromTask;
   }
@@ -463,7 +468,7 @@ async function loadRapidProfiles(patientId: string): Promise<Map<string, RapidDo
         continue;
       }
 
-      profiles.set(candidate.id, candidate as RapidDoseProfile);
+      profiles.set(candidate.id, candidate as unknown as RapidDoseProfile);
     }
   }
 
@@ -483,8 +488,8 @@ async function loadRapidProfiles(patientId: string): Promise<Map<string, RapidDo
 }
 
 function detectChangedTaskIds(
-  beforeResultsById: Map<string, MutableTaskResult>,
-  afterEntries: {
+    beforeResultsById: Map<string, MutableTaskResult>,
+    afterEntries: {
     list: MutableTaskResult[];
     map: Map<string, ResultEntry>;
   },
@@ -553,7 +558,7 @@ function toMutableTaskResults(value: unknown): MutableTaskResult[] {
     if (typeof item.taskId !== 'string' || typeof item.type !== 'string') {
       continue;
     }
-    results.push({ ...(item as Record<string, unknown>) } as MutableTaskResult);
+    results.push({...(item as Record<string, unknown>)} as MutableTaskResult);
   }
 
   return results;
@@ -588,9 +593,9 @@ function toResultEntries(results: MutableTaskResult[]): {
 } {
   const map = new Map<string, ResultEntry>();
   results.forEach((result, index) => {
-    map.set(result.taskId, { index, result });
+    map.set(result.taskId, {index, result});
   });
-  return { list: results, map };
+  return {list: results, map};
 }
 
 function dedupeById<T extends {id: string}>(items: T[]): T[] {

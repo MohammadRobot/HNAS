@@ -4,9 +4,9 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
-import { onSchedule } from 'firebase-functions/v2/scheduler';
-import { firestore, toDateId } from '../lib/firestore';
-import { createIssue } from '../lib/rulesEngine';
+import {onSchedule} from 'firebase-functions/v2/scheduler';
+import {firestore, toDateId} from '../lib/firestore';
+import {createIssue} from '../lib/rulesEngine';
 import {
   type DailyChecklist,
   type Issue,
@@ -24,55 +24,55 @@ const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
 const AUTO_MISSED_NOTE = 'Auto-marked as missed by end-of-day sweep.';
 
 export const endOfDaySweep = onSchedule(
-  {
-    schedule: '59 23 * * *',
-    timeZone: 'Etc/UTC',
-  },
-  async () => {
-    const dateId = toDateId(new Date());
+    {
+      schedule: '59 23 * * *',
+      timeZone: 'Etc/UTC',
+    },
+    async () => {
+      const dateId = toDateId(new Date());
 
-    const checklistSnapshot = await firestore
-      .collectionGroup(DAILY_CHECKLISTS_COLLECTION)
-      .where('dateId', '==', dateId)
-      .get();
+      const checklistSnapshot = await firestore
+          .collectionGroup(DAILY_CHECKLISTS_COLLECTION)
+          .where('dateId', '==', dateId)
+          .get();
 
-    logger.info('Starting end-of-day sweep.', {
-      dateId,
-      checklistCount: checklistSnapshot.size,
-    });
+      logger.info('Starting end-of-day sweep.', {
+        dateId,
+        checklistCount: checklistSnapshot.size,
+      });
 
-    for (const checklistDoc of checklistSnapshot.docs) {
-      const patientRef = checklistDoc.ref.parent.parent;
-      if (!patientRef) {
-        continue;
-      }
+      for (const checklistDoc of checklistSnapshot.docs) {
+        const patientRef = checklistDoc.ref.parent.parent;
+        if (!patientRef) {
+          continue;
+        }
 
-      try {
-        const summary = await sweepChecklistForPatient(
+        try {
+          const summary = await sweepChecklistForPatient(
           patientRef as DocumentReference<DocumentData>,
           checklistDoc,
           dateId,
-        );
+          );
 
-        logger.info('Completed end-of-day sweep for checklist.', {
-          dateId,
-          patientId: patientRef.id,
-          missedCreated: summary.missedCreated,
-          done: summary.counts.done,
-          missed: summary.counts.missed,
-          late: summary.counts.late,
-          skipped: summary.counts.skipped,
-        });
-      } catch (error) {
-        logger.error('End-of-day sweep failed for checklist.', {
-          dateId,
-          patientId: patientRef.id,
-          checklistPath: checklistDoc.ref.path,
-          error: error instanceof Error ? error.message : String(error),
-        });
+          logger.info('Completed end-of-day sweep for checklist.', {
+            dateId,
+            patientId: patientRef.id,
+            missedCreated: summary.missedCreated,
+            done: summary.counts.done,
+            missed: summary.counts.missed,
+            late: summary.counts.late,
+            skipped: summary.counts.skipped,
+          });
+        } catch (error) {
+          logger.error('End-of-day sweep failed for checklist.', {
+            dateId,
+            patientId: patientRef.id,
+            checklistPath: checklistDoc.ref.path,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
       }
-    }
-  },
+    },
 );
 
 interface SweepSummary {
@@ -88,16 +88,16 @@ interface DailyCounts {
 }
 
 async function sweepChecklistForPatient(
-  patientRef: DocumentReference<DocumentData>,
-  checklistDoc: QueryDocumentSnapshot<DocumentData>,
-  dateId: string,
+    patientRef: DocumentReference<DocumentData>,
+    checklistDoc: QueryDocumentSnapshot<DocumentData>,
+    dateId: string,
 ): Promise<SweepSummary> {
   const checklistRef = checklistDoc.ref as DocumentReference<DailyChecklist>;
   const reportRef = patientRef
-    .collection(REPORTS_COLLECTION)
-    .doc(REPORTS_DAILY_DOC_ID)
-    .collection(REPORTS_BY_DATE_SUBCOLLECTION)
-    .doc(dateId);
+      .collection(REPORTS_COLLECTION)
+      .doc(REPORTS_DAILY_DOC_ID)
+      .collection(REPORTS_BY_DATE_SUBCOLLECTION)
+      .doc(dateId);
 
   return firestore.runTransaction(async (transaction) => {
     const freshChecklistSnap = await transaction.get(checklistRef);
@@ -106,7 +106,7 @@ async function sweepChecklistForPatient(
     if (!freshChecklistSnap.exists) {
       return {
         missedCreated: 0,
-        counts: { done: 0, missed: 0, late: 0, skipped: 0 },
+        counts: {done: 0, missed: 0, late: 0, skipped: 0},
       };
     }
 
@@ -119,59 +119,59 @@ async function sweepChecklistForPatient(
     const counts = aggregateDailyCounts(tasks, sweep.results);
 
     const newIssues = buildMissedTaskIssues(
-      patientRef.id,
-      dateId,
-      sweep.missedTasks,
-      nowIso,
+        patientRef.id,
+        dateId,
+        sweep.missedTasks,
+        nowIso,
     );
     const mergedIssues = mergeIssues(toIssueList(checklist.issues), newIssues);
 
     transaction.set(
-      checklistRef,
-      {
-        results: sweep.results,
-        issues: mergedIssues,
-        updatedAt: nowIso,
-      },
-      { merge: true },
+        checklistRef,
+        {
+          results: sweep.results,
+          issues: mergedIssues,
+          updatedAt: nowIso,
+        },
+        {merge: true},
     );
 
     for (const task of sweep.missedTasks) {
       const taskLog = buildTaskLog(patientRef.id, dateId, task, nowIso);
       transaction.set(
-        patientRef.collection(TASK_LOGS_SUBCOLLECTION).doc(taskLog.id),
-        taskLog,
-        { merge: true },
+          patientRef.collection(TASK_LOGS_SUBCOLLECTION).doc(taskLog.id),
+          taskLog,
+          {merge: true},
       );
     }
 
     for (const issue of newIssues) {
       transaction.set(
-        patientRef.collection(ISSUES_SUBCOLLECTION).doc(issue.id),
-        issue,
-        { merge: true },
+          patientRef.collection(ISSUES_SUBCOLLECTION).doc(issue.id),
+          issue,
+          {merge: true},
       );
     }
 
     const existingReportData = reportSnap.data();
-    const createdAt = typeof existingReportData?.createdAt === 'string'
-      ? existingReportData.createdAt
-      : nowIso;
+    const createdAt = typeof existingReportData?.createdAt === 'string' ?
+      existingReportData.createdAt :
+      nowIso;
 
     transaction.set(
-      reportRef,
-      {
-        id: dateId,
-        dateId,
-        patientId: patientRef.id,
-        done: counts.done,
-        missed: counts.missed,
-        late: counts.late,
-        skipped: counts.skipped,
-        createdAt,
-        updatedAt: nowIso,
-      },
-      { merge: false },
+        reportRef,
+        {
+          id: dateId,
+          dateId,
+          patientId: patientRef.id,
+          done: counts.done,
+          missed: counts.missed,
+          late: counts.late,
+          skipped: counts.skipped,
+          createdAt,
+          updatedAt: nowIso,
+        },
+        {merge: false},
     );
 
     return {
@@ -187,9 +187,9 @@ interface SweepResult {
 }
 
 function markPendingTasksAsMissed(
-  tasks: Task[],
-  existingResults: TaskResult[],
-  nowIso: string,
+    tasks: Task[],
+    existingResults: TaskResult[],
+    nowIso: string,
 ): SweepResult {
   const taskIds = new Set(tasks.map((task) => task.id));
   const resultByTaskId = new Map<string, TaskResult>();
@@ -220,13 +220,13 @@ function markPendingTasksAsMissed(
     }
   }
 
-  return { results: nextResults, missedTasks };
+  return {results: nextResults, missedTasks};
 }
 
 function createMissedResult(
-  task: Task,
-  existing: TaskResult | undefined,
-  nowIso: string,
+    task: Task,
+    existing: TaskResult | undefined,
+    nowIso: string,
 ): TaskResult {
   const note = appendAutoMissedNote(existing?.note);
   const completedAt = existing?.completedAt ?? nowIso;
@@ -283,16 +283,16 @@ function appendAutoMissedNote(existingNote?: string): string {
 }
 
 function buildMissedTaskIssues(
-  patientId: string,
-  dateId: string,
-  missedTasks: Task[],
-  nowIso: string,
+    patientId: string,
+    dateId: string,
+    missedTasks: Task[],
+    nowIso: string,
 ): Issue[] {
   return missedTasks.map((task) => {
     const issueId = sanitizeId(`missed_${dateId}_${task.id}`);
-    const code = task.type === 'insulin_rapid' || task.type === 'insulin_basal'
-      ? 'missed_insulin'
-      : 'missed_other';
+    const code = task.type === 'insulin_rapid' || task.type === 'insulin_basal' ?
+      'missed_insulin' :
+      'missed_other';
 
     return createIssue(patientId, {
       id: issueId,
@@ -343,10 +343,10 @@ interface TaskLogEntry {
 }
 
 function buildTaskLog(
-  patientId: string,
-  dateId: string,
-  task: Task,
-  nowIso: string,
+    patientId: string,
+    dateId: string,
+    task: Task,
+    nowIso: string,
 ): TaskLogEntry {
   const logId = sanitizeId(`missed_${dateId}_${task.id}`);
   return {

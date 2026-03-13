@@ -1,4 +1,4 @@
-import { toDateId } from './firestore';
+import {toDateId} from './firestore';
 import {
   type DailyChecklist,
   type Issue,
@@ -46,9 +46,9 @@ type TaskWithRuntimeInputs = Task & {
 };
 
 export function checkLate(
-  scheduledTime: string | undefined,
-  completedAt: string | Date | undefined,
-  thresholdMin = 30,
+    scheduledTime: string | undefined,
+    completedAt: string | Date | undefined,
+    thresholdMin = 30,
 ): boolean {
   const scheduledMinutes = parseScheduledMinutes(scheduledTime);
   const completedDate = parseDate(completedAt);
@@ -108,12 +108,12 @@ export function validateRequiredInputs(task: Task): RequiredInputValidation {
 }
 
 export function createIssue(patientId: string, input: CreateIssueInput): Issue {
-  const createdAt = isNonEmptyString(input.createdAt)
-    ? input.createdAt
-    : new Date().toISOString();
-  const checklistDateId = isNonEmptyString(input.checklistDateId)
-    ? input.checklistDateId
-    : toDateId(createdAt);
+  const createdAt = isNonEmptyString(input.createdAt) ?
+    input.createdAt :
+    new Date().toISOString();
+  const checklistDateId = isNonEmptyString(input.checklistDateId) ?
+    input.checklistDateId :
+    toDateId(createdAt);
   const severity = input.severity ?? mapIssueSeverity(input.code ?? 'other');
 
   const rawId = input.id ??
@@ -184,7 +184,7 @@ export function mapMissedTaskSeverity(task: Task): IssueSeverity {
 }
 
 function readNumberInput(task: TaskWithRuntimeInputs, key: string): number {
-  const directValue = (task as Record<string, unknown>)[key];
+  const directValue = (task as unknown as Record<string, unknown>)[key];
   if (typeof directValue === 'number' && Number.isFinite(directValue)) {
     return directValue;
   }
@@ -255,4 +255,3 @@ function sanitizeId(value: string): string {
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
-
