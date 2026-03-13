@@ -273,6 +273,52 @@ flutter build web
 
 Firebase Hosting is configured to serve the Flutter web build output from `apps/flutter_app/build/web`.
 
+### Known-Good Local Run (Verified March 13, 2026)
+
+The sequence below was validated end-to-end on this repository.
+
+Terminal A: start emulators
+
+```bash
+cd ~/HNAS
+npm run serve:functions
+```
+
+Terminal B: seed demo users and patient data
+
+```bash
+cd ~/HNAS
+npm --prefix functions run seed:demo
+```
+
+Terminal C: run Flutter web app against emulators
+
+```bash
+cd ~/HNAS/apps/flutter_app
+/home/mohammadrobot/flutter-sdk/bin/flutter run -d chrome \
+  --dart-define=HNAS_FIREBASE_PROJECT_ID=demo-hnas \
+  --dart-define=HNAS_API_BASE_URL=http://127.0.0.1:5001/demo-hnas/us-central1/api
+```
+
+Demo login credentials:
+
+- `admin@hnas.local` / `Passw0rd!`
+- `nurse@hnas.local` / `Passw0rd!`
+
+Optional API smoke check:
+
+```bash
+TOKEN=$(curl -sS -X POST 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo-api-key' \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"admin@hnas.local","password":"Passw0rd!","returnSecureToken":true}' \
+  | node -pe "JSON.parse(require('fs').readFileSync(0,'utf8')).idToken")
+
+curl -sS -X POST 'http://127.0.0.1:5001/demo-hnas/us-central1/api/api/ai/ask' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"patientId":"patient_demo_1","question":"What tasks should I do today?"}'
+```
+
 ## Seed Data
 
 Create three Firebase Auth users with email and password:
