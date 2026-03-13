@@ -1,0 +1,17 @@
+{
+  "name": "hnas",
+  "private": true,
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "npm run build:functions",
+    "build:functions": "npm --prefix functions run build",
+    "lint:functions": "npm --prefix functions run lint",
+    "serve:functions": "npm --prefix functions run serve",
+    "deploy:functions": "npm --prefix functions run deploy",
+    "install:functions": "npm --prefix functions install",
+    "build:flutter:web": "cd apps/flutter_app && flutter build web",
+    "run:flutter:web": "cd apps/flutter_app && flutter run -d chrome"
+  }
+}

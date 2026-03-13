@@ -105,8 +105,15 @@ hnas/
 Install these tools before starting:
 
 - Flutter SDK
-- Node.js and npm
+- Node.js 22 and npm
 - Firebase CLI
+
+If you use `nvm`, this repository includes a `.nvmrc` pinned to Node 22:
+
+```bash
+nvm install
+nvm use
+```
 
 ### Firebase Setup Step By Step
 
