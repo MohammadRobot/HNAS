@@ -106,7 +106,8 @@ class _OverviewTab extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _KeyValue(label: 'Timezone', value: patient.timezone ?? '-'),
+                    _KeyValue(
+                        label: 'Timezone', value: patient.timezone ?? '-'),
                     _KeyValue(label: 'Agency', value: patient.agencyId ?? '-'),
                     _KeyValue(
                       label: 'Risk Flags',
@@ -182,48 +183,154 @@ class _MedicinesTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final canManage =
+        _canManageRecords(ref.watch(userProfileProvider).value?.role);
     final medicinesAsync = ref.watch(medicinesProvider(patientId));
+
+    Future<void> createMedicine() async {
+      final draft = await showDialog<_MedicineDraft>(
+        context: context,
+        builder: (_) => const _MedicineDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).createMedicine(
+              patientId: patientId,
+              name: draft.name,
+              instructions: draft.instructions,
+              doseAmount: draft.doseAmount,
+              doseUnit: draft.doseUnit,
+              active: draft.active,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Medicine added.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to add medicine: $error')),
+        );
+      }
+    }
+
+    Future<void> editMedicine(MedicineModel medicine) async {
+      final draft = await showDialog<_MedicineDraft>(
+        context: context,
+        builder: (_) => _MedicineDialog(initialValue: medicine),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).updateMedicine(
+              patientId: patientId,
+              medicineId: medicine.id,
+              name: draft.name,
+              instructions: draft.instructions,
+              doseAmount: draft.doseAmount,
+              doseUnit: draft.doseUnit,
+              active: draft.active,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Medicine updated.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to update medicine: $error')),
+        );
+      }
+    }
+
     return medicinesAsync.when(
       data: (medicines) {
-        if (medicines.isEmpty) {
-          return const Center(child: Text('No medicines.'));
-        }
-
-        return ListView.separated(
+        return ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: medicines.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final medicine = medicines[index];
-            final dose = medicine.doseAmount != null
-                ? '${medicine.doseAmount} ${medicine.doseUnit ?? ''}'.trim()
-                : '-';
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      medicine.name,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _KeyValue(label: 'Dose', value: dose),
-                    _KeyValue(
-                      label: 'Instructions',
-                      value: medicine.instructions ?? '-',
-                    ),
-                    _KeyValue(label: 'Status', value: medicine.active ? 'Active' : 'Inactive'),
-                  ],
+          children: <Widget>[
+            if (canManage)
+              _TabActionHeader(
+                label: 'Medicines',
+                actionLabel: 'Add Medicine',
+                onPressed: createMedicine,
+              ),
+            if (medicines.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No medicines.'),
                 ),
               ),
-            );
-          },
+            ...medicines.map((medicine) {
+              final dose = medicine.doseAmount != null
+                  ? '${medicine.doseAmount} ${medicine.doseUnit ?? ''}'.trim()
+                  : '-';
+              final schedule = medicine.scheduleTimes.isEmpty
+                  ? '-'
+                  : medicine.scheduleTimes.join(', ');
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                medicine.name,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            if (canManage)
+                              IconButton(
+                                tooltip: 'Edit medicine',
+                                onPressed: () => editMedicine(medicine),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _KeyValue(label: 'Dose', value: dose),
+                        _KeyValue(label: 'Schedule', value: schedule),
+                        _KeyValue(
+                          label: 'Instructions',
+                          value: medicine.instructions ?? '-',
+                        ),
+                        _KeyValue(
+                          label: 'Status',
+                          value: medicine.active ? 'Active' : 'Inactive',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Unable to load medicines: $error')),
+      error: (error, _) =>
+          Center(child: Text('Unable to load medicines: $error')),
     );
   }
 }
@@ -235,45 +342,151 @@ class _ProceduresTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final canManage =
+        _canManageRecords(ref.watch(userProfileProvider).value?.role);
     final proceduresAsync = ref.watch(proceduresProvider(patientId));
+
+    Future<void> createProcedure() async {
+      final draft = await showDialog<_ProcedureDraft>(
+        context: context,
+        builder: (_) => const _ProcedureDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).createProcedure(
+              patientId: patientId,
+              name: draft.name,
+              instructions: draft.instructions,
+              frequency: draft.frequency,
+              active: draft.active,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Procedure added.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to add procedure: $error')),
+        );
+      }
+    }
+
+    Future<void> editProcedure(ProcedureModel procedure) async {
+      final draft = await showDialog<_ProcedureDraft>(
+        context: context,
+        builder: (_) => _ProcedureDialog(initialValue: procedure),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).updateProcedure(
+              patientId: patientId,
+              procedureId: procedure.id,
+              name: draft.name,
+              instructions: draft.instructions,
+              frequency: draft.frequency,
+              active: draft.active,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Procedure updated.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to update procedure: $error')),
+        );
+      }
+    }
+
     return proceduresAsync.when(
       data: (procedures) {
-        if (procedures.isEmpty) {
-          return const Center(child: Text('No procedures.'));
-        }
-
-        return ListView.separated(
+        return ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: procedures.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final procedure = procedures[index];
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      procedure.name,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    _KeyValue(label: 'Frequency', value: procedure.frequency ?? '-'),
-                    _KeyValue(
-                      label: 'Instructions',
-                      value: procedure.instructions ?? '-',
-                    ),
-                    _KeyValue(label: 'Status', value: procedure.active ? 'Active' : 'Inactive'),
-                  ],
+          children: <Widget>[
+            if (canManage)
+              _TabActionHeader(
+                label: 'Procedures',
+                actionLabel: 'Add Procedure',
+                onPressed: createProcedure,
+              ),
+            if (procedures.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No procedures.'),
                 ),
               ),
-            );
-          },
+            ...procedures.map((procedure) {
+              final schedule = procedure.scheduleTimes.isEmpty
+                  ? '-'
+                  : procedure.scheduleTimes.join(', ');
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                procedure.name,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            if (canManage)
+                              IconButton(
+                                tooltip: 'Edit procedure',
+                                onPressed: () => editProcedure(procedure),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _KeyValue(
+                            label: 'Frequency',
+                            value: procedure.frequency ?? '-'),
+                        _KeyValue(label: 'Schedule', value: schedule),
+                        _KeyValue(
+                          label: 'Instructions',
+                          value: procedure.instructions ?? '-',
+                        ),
+                        _KeyValue(
+                          label: 'Status',
+                          value: procedure.active ? 'Active' : 'Inactive',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Unable to load procedures: $error')),
+      error: (error, _) =>
+          Center(child: Text('Unable to load procedures: $error')),
     );
   }
 }
@@ -285,67 +498,965 @@ class _InsulinTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final canManage =
+        _canManageRecords(ref.watch(userProfileProvider).value?.role);
     final profilesAsync = ref.watch(insulinProfilesProvider(patientId));
+
+    Future<void> createInsulinProfile() async {
+      final draft = await showDialog<_InsulinProfileDraft>(
+        context: context,
+        builder: (_) => const _InsulinProfileDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).createInsulinProfile(
+              patientId: patientId,
+              type: draft.type,
+              label: draft.label,
+              insulinName: draft.insulinName,
+              active: draft.active,
+              slidingScaleMgdl: draft.slidingScaleMgdl,
+              mealBaseUnits: draft.mealBaseUnits,
+              defaultBaseUnits: draft.defaultBaseUnits,
+              fixedUnits: draft.fixedUnits,
+              notes: draft.notes,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Insulin profile added.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to add insulin profile: $error')),
+        );
+      }
+    }
+
+    Future<void> editInsulinProfile(InsulinProfileModel profile) async {
+      final draft = await showDialog<_InsulinProfileDraft>(
+        context: context,
+        builder: (_) => _InsulinProfileDialog(initialValue: profile),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).updateInsulinProfile(
+              patientId: patientId,
+              insulinProfileId: profile.id,
+              type: draft.type,
+              label: draft.label,
+              insulinName: draft.insulinName,
+              active: draft.active,
+              slidingScaleMgdl: draft.slidingScaleMgdl,
+              mealBaseUnits: draft.mealBaseUnits,
+              defaultBaseUnits: draft.defaultBaseUnits,
+              fixedUnits: draft.fixedUnits,
+              notes: draft.notes,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Insulin profile updated.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to update insulin profile: $error')),
+        );
+      }
+    }
+
     return profilesAsync.when(
       data: (profiles) {
-        if (profiles.isEmpty) {
-          return const Center(child: Text('No insulin profiles.'));
-        }
-
-        return ListView.separated(
+        return ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: profiles.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final profile = profiles[index];
-            final typeLabel = profile.isRapid ? 'Rapid' : 'Basal';
-            final scale = profile.slidingScaleMgdl.isEmpty
-                ? '-'
-                : profile.slidingScaleMgdl.join(', ');
-            final mealBase = profile.mealBaseUnits.isEmpty
-                ? '-'
-                : profile.mealBaseUnits.entries
-                    .map((entry) => '${entry.key}: ${entry.value}')
-                    .join(', ');
-
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: Text(
-                            profile.label,
-                            style: Theme.of(context).textTheme.titleMedium,
-                          ),
-                        ),
-                        Chip(label: Text(typeLabel)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _KeyValue(label: 'Insulin', value: profile.insulinName ?? '-'),
-                    if (profile.isRapid) ...<Widget>[
-                      _KeyValue(label: 'Sliding Scale (mg/dL)', value: scale),
-                      _KeyValue(label: 'Meal Base (units)', value: mealBase),
-                      _KeyValue(
-                        label: 'Default Base Units',
-                        value: profile.defaultBaseUnits?.toString() ?? '-',
-                      ),
-                    ],
-                  ],
+          children: <Widget>[
+            if (canManage)
+              _TabActionHeader(
+                label: 'Insulin Profiles',
+                actionLabel: 'Add Profile',
+                onPressed: createInsulinProfile,
+              ),
+            if (profiles.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No insulin profiles.'),
                 ),
               ),
-            );
-          },
+            ...profiles.map((profile) {
+              final typeLabel = profile.isRapid ? 'Rapid' : 'Basal';
+              final scale = profile.slidingScaleMgdl.isEmpty
+                  ? '-'
+                  : profile.slidingScaleMgdl.join(', ');
+              final mealBase = profile.mealBaseUnits.isEmpty
+                  ? '-'
+                  : profile.mealBaseUnits.entries
+                      .map((entry) => '${entry.key}: ${entry.value}')
+                      .join(', ');
+              final schedule = profile.scheduleTimes.isEmpty
+                  ? '-'
+                  : profile.scheduleTimes.join(', ');
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                profile.label,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            Chip(label: Text(typeLabel)),
+                            if (canManage)
+                              IconButton(
+                                tooltip: 'Edit profile',
+                                onPressed: () => editInsulinProfile(profile),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _KeyValue(
+                            label: 'Insulin',
+                            value: profile.insulinName ?? '-'),
+                        _KeyValue(label: 'Schedule', value: schedule),
+                        if (profile.isRapid) ...<Widget>[
+                          _KeyValue(
+                              label: 'Sliding Scale (mg/dL)', value: scale),
+                          _KeyValue(
+                              label: 'Meal Base (units)', value: mealBase),
+                          _KeyValue(
+                            label: 'Default Base Units',
+                            value: profile.defaultBaseUnits?.toString() ?? '-',
+                          ),
+                        ] else ...<Widget>[
+                          _KeyValue(
+                            label: 'Fixed Units',
+                            value: profile.fixedUnits?.toString() ?? '-',
+                          ),
+                        ],
+                        _KeyValue(label: 'Notes', value: profile.notes ?? '-'),
+                        _KeyValue(
+                          label: 'Status',
+                          value: profile.active ? 'Active' : 'Inactive',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Unable to load insulin profiles: $error')),
+      error: (error, _) =>
+          Center(child: Text('Unable to load insulin profiles: $error')),
     );
   }
+}
+
+bool _canManageRecords(String? role) {
+  return role == 'admin' || role == 'supervisor';
+}
+
+class _TabActionHeader extends StatelessWidget {
+  const _TabActionHeader({
+    required this.label,
+    required this.actionLabel,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String actionLabel;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: <Widget>[
+              Expanded(
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: onPressed,
+                icon: const Icon(Icons.add_rounded),
+                label: Text(actionLabel),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MedicineDraft {
+  const _MedicineDraft({
+    required this.name,
+    required this.instructions,
+    required this.doseAmount,
+    required this.doseUnit,
+    required this.active,
+    required this.scheduleTimes,
+  });
+
+  final String name;
+  final String? instructions;
+  final num? doseAmount;
+  final String? doseUnit;
+  final bool active;
+  final List<String> scheduleTimes;
+}
+
+class _MedicineDialog extends StatefulWidget {
+  const _MedicineDialog({
+    this.initialValue,
+  });
+
+  final MedicineModel? initialValue;
+
+  @override
+  State<_MedicineDialog> createState() => _MedicineDialogState();
+}
+
+class _MedicineDialogState extends State<_MedicineDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _instructionsController;
+  late final TextEditingController _doseAmountController;
+  late final TextEditingController _doseUnitController;
+  late final TextEditingController _scheduleController;
+  late bool _active;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _nameController = TextEditingController(text: initial?.name ?? '');
+    _instructionsController = TextEditingController(
+      text: initial?.instructions ?? '',
+    );
+    _doseAmountController = TextEditingController(
+      text: initial?.doseAmount?.toString() ?? '',
+    );
+    _doseUnitController = TextEditingController(text: initial?.doseUnit ?? '');
+    _scheduleController = TextEditingController(
+      text: initial?.scheduleTimes.join(', ') ?? '',
+    );
+    _active = initial?.active ?? true;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _instructionsController.dispose();
+    _doseAmountController.dispose();
+    _doseUnitController.dispose();
+    _scheduleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialValue != null;
+    return AlertDialog(
+      title: Text(isEditing ? 'Edit Medicine' : 'Add Medicine'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Name is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _doseAmountController,
+                  textInputAction: TextInputAction.next,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Dose Amount (optional)',
+                  ),
+                  validator: (value) {
+                    final raw = (value ?? '').trim();
+                    if (raw.isEmpty) {
+                      return null;
+                    }
+                    return num.tryParse(raw) == null
+                        ? 'Enter a valid number.'
+                        : null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _doseUnitController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Dose Unit (optional)',
+                    hintText: 'mg, ml, tablet',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _scheduleController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule Times (optional)',
+                    hintText: '08:00, 14:30',
+                  ),
+                  validator: (value) {
+                    try {
+                      _parseTimeCsv(value ?? '');
+                      return null;
+                    } catch (_) {
+                      return 'Use comma-separated HH:mm times.';
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _instructionsController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Instructions (optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active'),
+                  value: _active,
+                  onChanged: (value) {
+                    setState(() {
+                      _active = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'Save' : 'Create'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final instructions = _instructionsController.text.trim();
+    final doseUnit = _doseUnitController.text.trim();
+    final doseRaw = _doseAmountController.text.trim();
+
+    Navigator.of(context).pop(
+      _MedicineDraft(
+        name: _nameController.text.trim(),
+        instructions: instructions.isEmpty ? null : instructions,
+        doseAmount: doseRaw.isEmpty ? null : num.tryParse(doseRaw),
+        doseUnit: doseUnit.isEmpty ? null : doseUnit,
+        active: _active,
+        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+      ),
+    );
+  }
+}
+
+class _ProcedureDraft {
+  const _ProcedureDraft({
+    required this.name,
+    required this.instructions,
+    required this.frequency,
+    required this.active,
+    required this.scheduleTimes,
+  });
+
+  final String name;
+  final String? instructions;
+  final String? frequency;
+  final bool active;
+  final List<String> scheduleTimes;
+}
+
+class _ProcedureDialog extends StatefulWidget {
+  const _ProcedureDialog({
+    this.initialValue,
+  });
+
+  final ProcedureModel? initialValue;
+
+  @override
+  State<_ProcedureDialog> createState() => _ProcedureDialogState();
+}
+
+class _ProcedureDialogState extends State<_ProcedureDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _instructionsController;
+  late final TextEditingController _frequencyController;
+  late final TextEditingController _scheduleController;
+  late bool _active;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _nameController = TextEditingController(text: initial?.name ?? '');
+    _instructionsController = TextEditingController(
+      text: initial?.instructions ?? '',
+    );
+    _frequencyController =
+        TextEditingController(text: initial?.frequency ?? '');
+    _scheduleController = TextEditingController(
+      text: initial?.scheduleTimes.join(', ') ?? '',
+    );
+    _active = initial?.active ?? true;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _instructionsController.dispose();
+    _frequencyController.dispose();
+    _scheduleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialValue != null;
+    return AlertDialog(
+      title: Text(isEditing ? 'Edit Procedure' : 'Add Procedure'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Name is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _frequencyController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Frequency (optional)',
+                    hintText: 'daily, weekly',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _scheduleController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule Times (optional)',
+                    hintText: '09:00, 18:00',
+                  ),
+                  validator: (value) {
+                    try {
+                      _parseTimeCsv(value ?? '');
+                      return null;
+                    } catch (_) {
+                      return 'Use comma-separated HH:mm times.';
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _instructionsController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Instructions (optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active'),
+                  value: _active,
+                  onChanged: (value) {
+                    setState(() {
+                      _active = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'Save' : 'Create'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final instructions = _instructionsController.text.trim();
+    final frequency = _frequencyController.text.trim();
+    Navigator.of(context).pop(
+      _ProcedureDraft(
+        name: _nameController.text.trim(),
+        instructions: instructions.isEmpty ? null : instructions,
+        frequency: frequency.isEmpty ? null : frequency,
+        active: _active,
+        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+      ),
+    );
+  }
+}
+
+class _InsulinProfileDraft {
+  const _InsulinProfileDraft({
+    required this.type,
+    required this.label,
+    required this.insulinName,
+    required this.active,
+    required this.scheduleTimes,
+    required this.slidingScaleMgdl,
+    required this.mealBaseUnits,
+    required this.defaultBaseUnits,
+    required this.fixedUnits,
+    required this.notes,
+  });
+
+  final String type;
+  final String label;
+  final String? insulinName;
+  final bool active;
+  final List<String> scheduleTimes;
+  final List<num> slidingScaleMgdl;
+  final Map<String, num> mealBaseUnits;
+  final num? defaultBaseUnits;
+  final num? fixedUnits;
+  final String? notes;
+}
+
+class _InsulinProfileDialog extends StatefulWidget {
+  const _InsulinProfileDialog({
+    this.initialValue,
+  });
+
+  final InsulinProfileModel? initialValue;
+
+  @override
+  State<_InsulinProfileDialog> createState() => _InsulinProfileDialogState();
+}
+
+class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
+  static const _mealTags = <String>[
+    'breakfast',
+    'lunch',
+    'dinner',
+    'snack',
+    'none',
+  ];
+
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _labelController;
+  late final TextEditingController _insulinNameController;
+  late final TextEditingController _scheduleController;
+  late final TextEditingController _notesController;
+  late final TextEditingController _slidingScaleController;
+  late final TextEditingController _defaultBaseController;
+  late final TextEditingController _fixedUnitsController;
+  late final Map<String, TextEditingController> _mealBaseControllers;
+  late String _type;
+  late bool _active;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _type = initial?.type == 'basal' ? 'basal' : 'rapid';
+    _active = initial?.active ?? true;
+
+    _labelController = TextEditingController(text: initial?.label ?? '');
+    _insulinNameController = TextEditingController(
+      text: initial?.insulinName ?? '',
+    );
+    _scheduleController = TextEditingController(
+      text: initial?.scheduleTimes.join(', ') ?? '',
+    );
+    _notesController = TextEditingController(text: initial?.notes ?? '');
+    _slidingScaleController = TextEditingController(
+      text: initial?.slidingScaleMgdl.join(', ') ?? '',
+    );
+    _defaultBaseController = TextEditingController(
+      text: initial?.defaultBaseUnits?.toString() ?? '',
+    );
+    _fixedUnitsController = TextEditingController(
+      text: initial?.fixedUnits?.toString() ?? '',
+    );
+    _mealBaseControllers = <String, TextEditingController>{
+      for (final tag in _mealTags)
+        tag: TextEditingController(
+          text: initial?.mealBaseUnits[tag]?.toString() ?? '',
+        ),
+    };
+  }
+
+  @override
+  void dispose() {
+    _labelController.dispose();
+    _insulinNameController.dispose();
+    _scheduleController.dispose();
+    _notesController.dispose();
+    _slidingScaleController.dispose();
+    _defaultBaseController.dispose();
+    _fixedUnitsController.dispose();
+    for (final controller in _mealBaseControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialValue != null;
+    return AlertDialog(
+      title: Text(isEditing ? 'Edit Insulin Profile' : 'Add Insulin Profile'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                DropdownButtonFormField<String>(
+                  initialValue: _type,
+                  decoration: const InputDecoration(labelText: 'Type'),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem(value: 'rapid', child: Text('Rapid')),
+                    DropdownMenuItem(value: 'basal', child: Text('Basal')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _type = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _labelController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Label'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Label is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _insulinNameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Insulin Name (optional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _scheduleController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule Times',
+                    hintText: '08:00, 12:00, 18:00',
+                  ),
+                  validator: (value) {
+                    try {
+                      _parseTimeCsv(value ?? '');
+                      return null;
+                    } catch (_) {
+                      return 'Use comma-separated HH:mm times.';
+                    }
+                  },
+                ),
+                const SizedBox(height: 10),
+                if (_type == 'rapid') ...<Widget>[
+                  TextFormField(
+                    controller: _slidingScaleController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Sliding Scale mg/dL (optional)',
+                      hintText: '150, 200, 250',
+                    ),
+                    validator: (value) {
+                      try {
+                        _parseNumberCsv(value ?? '');
+                        return null;
+                      } catch (_) {
+                        return 'Use comma-separated numbers.';
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _defaultBaseController,
+                    textInputAction: TextInputAction.next,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Default Base Units (optional)',
+                    ),
+                    validator: _optionalNumberValidator,
+                  ),
+                  const SizedBox(height: 10),
+                  ..._mealTags.map((tag) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 10),
+                      child: TextFormField(
+                        controller: _mealBaseControllers[tag],
+                        textInputAction: TextInputAction.next,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Meal Base: $tag (optional)',
+                        ),
+                        validator: _optionalNumberValidator,
+                      ),
+                    );
+                  }),
+                ] else ...<Widget>[
+                  TextFormField(
+                    controller: _fixedUnitsController,
+                    textInputAction: TextInputAction.next,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Fixed Units (optional)',
+                    ),
+                    validator: _optionalNumberValidator,
+                  ),
+                ],
+                TextFormField(
+                  controller: _notesController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active'),
+                  value: _active,
+                  onChanged: (value) {
+                    setState(() {
+                      _active = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'Save' : 'Create'),
+        ),
+      ],
+    );
+  }
+
+  String? _optionalNumberValidator(String? value) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    return num.tryParse(raw) == null ? 'Enter a valid number.' : null;
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final mealBaseUnits = <String, num>{};
+    for (final entry in _mealBaseControllers.entries) {
+      final raw = entry.value.text.trim();
+      if (raw.isEmpty) {
+        continue;
+      }
+      final parsed = num.tryParse(raw);
+      if (parsed != null) {
+        mealBaseUnits[entry.key] = parsed;
+      }
+    }
+
+    final insulinName = _insulinNameController.text.trim();
+    final notes = _notesController.text.trim();
+    final defaultBaseRaw = _defaultBaseController.text.trim();
+    final fixedUnitsRaw = _fixedUnitsController.text.trim();
+
+    Navigator.of(context).pop(
+      _InsulinProfileDraft(
+        type: _type,
+        label: _labelController.text.trim(),
+        insulinName: insulinName.isEmpty ? null : insulinName,
+        active: _active,
+        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+        slidingScaleMgdl: _type == 'rapid'
+            ? _parseNumberCsv(_slidingScaleController.text)
+            : const <num>[],
+        mealBaseUnits: _type == 'rapid' ? mealBaseUnits : const <String, num>{},
+        defaultBaseUnits: _type == 'rapid' && defaultBaseRaw.isNotEmpty
+            ? num.tryParse(defaultBaseRaw)
+            : null,
+        fixedUnits: _type == 'basal' && fixedUnitsRaw.isNotEmpty
+            ? num.tryParse(fixedUnitsRaw)
+            : null,
+        notes: notes.isEmpty ? null : notes,
+      ),
+    );
+  }
+}
+
+List<String> _parseTimeCsv(String input) {
+  final result = <String>{};
+  for (final part in input.split(',')) {
+    final value = part.trim();
+    if (value.isEmpty) {
+      continue;
+    }
+    final normalized = _normalizeTimeValue(value);
+    if (normalized == null) {
+      throw const FormatException('Invalid time format');
+    }
+    result.add(normalized);
+  }
+  final list = result.toList();
+  list.sort();
+  return list;
+}
+
+String? _normalizeTimeValue(String raw) {
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(raw.trim());
+  if (match == null) {
+    return null;
+  }
+  final hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  if (hour == null || minute == null) {
+    return null;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+}
+
+List<num> _parseNumberCsv(String input) {
+  final result = <num>[];
+  for (final part in input.split(',')) {
+    final value = part.trim();
+    if (value.isEmpty) {
+      continue;
+    }
+    final parsed = num.tryParse(value);
+    if (parsed == null) {
+      throw const FormatException('Invalid number format');
+    }
+    result.add(parsed);
+  }
+  return result;
 }
 
 class _ChecklistTab extends ConsumerStatefulWidget {
@@ -362,6 +1473,7 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
       <String, TextEditingController>{};
   final Map<String, String> _mealTags = <String, String>{};
   String? _busyTaskId;
+  bool _isGeneratingChecklist = false;
 
   @override
   void dispose() {
@@ -443,212 +1555,312 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
     );
   }
 
+  Future<void> _generateChecklist({required String dateId}) async {
+    if (_isGeneratingChecklist) {
+      return;
+    }
+
+    setState(() {
+      _isGeneratingChecklist = true;
+    });
+
+    try {
+      final response = await ref.read(apiClientProvider).generateChecklist(
+            patientId: widget.patientId,
+            date: dateId,
+          );
+      final taskCount = response['taskCount'];
+      _showSnack(
+        taskCount is num
+            ? 'Checklist generated with ${taskCount.toInt()} tasks.'
+            : 'Checklist generated.',
+      );
+      ref.invalidate(
+        checklistProvider(
+          ChecklistQuery(patientId: widget.patientId, dateId: dateId),
+        ),
+      );
+    } catch (error) {
+      _showSnack('Checklist generation failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingChecklist = false;
+        });
+      }
+    }
+  }
+
+  Widget _checklistActionCard({required String dateId}) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                'Need to rebuild today\'s checklist?',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            FilledButton.icon(
+              onPressed: _isGeneratingChecklist
+                  ? null
+                  : () => _generateChecklist(dateId: dateId),
+              icon: _isGeneratingChecklist
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.playlist_add_check_rounded),
+              label: const Text('Generate'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dateId = ref.watch(todayDateIdProvider);
+    final canGenerateChecklist = ref.watch(userProfileProvider).value != null;
     final checklistAsync = ref.watch(
       checklistProvider(
         ChecklistQuery(patientId: widget.patientId, dateId: dateId),
       ),
     );
-    final insulinProfilesAsync = ref.watch(insulinProfilesProvider(widget.patientId));
+    final insulinProfilesAsync =
+        ref.watch(insulinProfilesProvider(widget.patientId));
 
     return checklistAsync.when(
       data: (checklist) {
         if (checklist == null || checklist.tasks.isEmpty) {
-          return const Center(
-            child: Text('No checklist generated for today yet.'),
+          if (!canGenerateChecklist) {
+            return const Center(
+              child: Text('No checklist generated for today yet.'),
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              _checklistActionCard(dateId: dateId),
+              const SizedBox(height: 12),
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No checklist generated for today yet.'),
+                ),
+              ),
+            ],
           );
         }
 
         final resultByTask = checklist.resultByTaskId();
         final insulinById = <String, InsulinProfileModel>{
-          for (final profile in insulinProfilesAsync.value ?? <InsulinProfileModel>[])
+          for (final profile
+              in insulinProfilesAsync.value ?? <InsulinProfileModel>[])
             profile.id: profile,
         };
 
-        return ListView.separated(
+        return ListView(
           padding: const EdgeInsets.all(16),
-          itemCount: checklist.tasks.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
-          itemBuilder: (context, index) {
-            final task = checklist.tasks[index];
-            final result = resultByTask[task.id];
-            final currentStatus = (result?.status ?? 'pending').toLowerCase();
-            final busy = _busyTaskId == task.id;
+          children: <Widget>[
+            if (canGenerateChecklist) ...<Widget>[
+              _checklistActionCard(dateId: dateId),
+              const SizedBox(height: 12),
+            ],
+            ...checklist.tasks.map((task) {
+              final result = resultByTask[task.id];
+              final currentStatus = (result?.status ?? 'pending').toLowerCase();
+              final busy = _busyTaskId == task.id;
 
-            final children = <Widget>[
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      task.title,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                  _StatusChip(status: currentStatus),
-                ],
-              ),
-              const SizedBox(height: 6),
-              Text(
-                [
-                  if (task.scheduledTime != null) 'Time: ${task.scheduledTime}',
-                  'Type: ${task.type}',
-                ].join(' | '),
-              ),
-              if (task.notes != null && task.notes!.isNotEmpty) ...<Widget>[
-                const SizedBox(height: 4),
-                Text(task.notes!),
-              ],
-              if (result != null) ...<Widget>[
-                const SizedBox(height: 4),
-                Text(
-                  _resultSummary(result),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ];
-
-            if (task.isInsulinRapid) {
-              final controller = _glucoseController(task.id, result?.glucoseMgDl);
-              final mealTag = _mealTags.putIfAbsent(
-                task.id,
-                () => (result?.mealTag ?? 'none'),
-              );
-              final glucose = double.tryParse(controller.text.trim());
-              final insulinProfileId = task.insulinProfileId;
-              final profile = insulinProfileId == null
-                  ? null
-                  : insulinById[insulinProfileId];
-              final preview = (profile != null && glucose != null)
-                  ? computeRapidDosePreview(
-                      mealTag: mealTag,
-                      glucoseMgDl: glucose,
-                      profile: profile,
-                    )
-                  : null;
-
-              children.addAll(<Widget>[
-                const SizedBox(height: 10),
+              final children = <Widget>[
                 Row(
                   children: <Widget>[
                     Expanded(
-                      child: TextField(
-                        controller: controller,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Glucose (mg/dL)',
-                          isDense: true,
-                        ),
+                      child: Text(
+                        task.title,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: DropdownButtonFormField<String>(
-                        initialValue: mealTag,
-                        items: const <DropdownMenuItem<String>>[
-                          DropdownMenuItem(value: 'none', child: Text('None')),
-                          DropdownMenuItem(
-                            value: 'breakfast',
-                            child: Text('Breakfast'),
+                    _StatusChip(status: currentStatus),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  [
+                    if (task.scheduledTime != null)
+                      'Time: ${task.scheduledTime}',
+                    'Type: ${task.type}',
+                  ].join(' | '),
+                ),
+                if (task.notes != null && task.notes!.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(task.notes!),
+                ],
+                if (result != null) ...<Widget>[
+                  const SizedBox(height: 4),
+                  Text(
+                    _resultSummary(result),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ];
+
+              if (task.isInsulinRapid) {
+                final controller =
+                    _glucoseController(task.id, result?.glucoseMgDl);
+                final mealTag = _mealTags.putIfAbsent(
+                  task.id,
+                  () => (result?.mealTag ?? 'none'),
+                );
+                final glucose = double.tryParse(controller.text.trim());
+                final insulinProfileId = task.insulinProfileId;
+                final profile = insulinProfileId == null
+                    ? null
+                    : insulinById[insulinProfileId];
+                final preview = (profile != null && glucose != null)
+                    ? computeRapidDosePreview(
+                        mealTag: mealTag,
+                        glucoseMgDl: glucose,
+                        profile: profile,
+                      )
+                    : null;
+
+                children.addAll(<Widget>[
+                  const SizedBox(height: 10),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
                           ),
-                          DropdownMenuItem(value: 'lunch', child: Text('Lunch')),
-                          DropdownMenuItem(value: 'dinner', child: Text('Dinner')),
-                          DropdownMenuItem(value: 'snack', child: Text('Snack')),
-                        ],
-                        onChanged: (value) {
-                          if (value == null) {
-                            return;
-                          }
-                          setState(() {
-                            _mealTags[task.id] = value;
-                          });
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Meal',
-                          isDense: true,
+                          onChanged: (_) => setState(() {}),
+                          decoration: const InputDecoration(
+                            labelText: 'Glucose (mg/dL)',
+                            isDense: true,
+                          ),
                         ),
                       ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          initialValue: mealTag,
+                          items: const <DropdownMenuItem<String>>[
+                            DropdownMenuItem(
+                                value: 'none', child: Text('None')),
+                            DropdownMenuItem(
+                              value: 'breakfast',
+                              child: Text('Breakfast'),
+                            ),
+                            DropdownMenuItem(
+                                value: 'lunch', child: Text('Lunch')),
+                            DropdownMenuItem(
+                                value: 'dinner', child: Text('Dinner')),
+                            DropdownMenuItem(
+                                value: 'snack', child: Text('Snack')),
+                          ],
+                          onChanged: (value) {
+                            if (value == null) {
+                              return;
+                            }
+                            setState(() {
+                              _mealTags[task.id] = value;
+                            });
+                          },
+                          decoration: const InputDecoration(
+                            labelText: 'Meal',
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (preview != null)
+                    Text(
+                      [
+                        'Preview dose: base ${preview.base}u',
+                        'sliding ${preview.sliding}u',
+                        'total ${preview.total}u',
+                      ].join(' | '),
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  if (preview != null &&
+                      (preview.lowGlucose || preview.highGlucose))
+                    Text(
+                      preview.lowGlucose
+                          ? 'Low glucose safety flag.'
+                          : 'High glucose safety flag.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                    ),
+                ]);
+              }
+
+              children.add(const SizedBox(height: 12));
+              children.add(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    FilledButton.icon(
+                      onPressed: busy
+                          ? null
+                          : () => _submitTask(
+                                task: task,
+                                status: 'done',
+                                dateId: dateId,
+                              ),
+                      icon: busy
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check_rounded),
+                      label: const Text('Done'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: busy
+                          ? null
+                          : () => _submitTask(
+                                task: task,
+                                status: 'skipped',
+                                dateId: dateId,
+                              ),
+                      icon: const Icon(Icons.skip_next_rounded),
+                      label: const Text('Skip'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 8),
-                if (preview != null)
-                  Text(
-                    [
-                      'Preview dose: base ${preview.base}u',
-                      'sliding ${preview.sliding}u',
-                      'total ${preview.total}u',
-                    ].join(' | '),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                if (preview != null && (preview.lowGlucose || preview.highGlucose))
-                  Text(
-                    preview.lowGlucose
-                        ? 'Low glucose safety flag.'
-                        : 'High glucose safety flag.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                  ),
-              ]);
-            }
+              );
 
-            children.add(const SizedBox(height: 12));
-            children.add(
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  FilledButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () => _submitTask(
-                              task: task,
-                              status: 'done',
-                              dateId: dateId,
-                            ),
-                    icon: busy
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.check_rounded),
-                    label: const Text('Done'),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: children,
+                    ),
                   ),
-                  OutlinedButton.icon(
-                    onPressed: busy
-                        ? null
-                        : () => _submitTask(
-                              task: task,
-                              status: 'skipped',
-                              dateId: dateId,
-                            ),
-                    icon: const Icon(Icons.skip_next_rounded),
-                    label: const Text('Skip'),
-                  ),
-                ],
-              ),
-            );
-
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: children,
                 ),
-              ),
-            );
-          },
+              );
+            }),
+          ],
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Unable to load checklist: $error')),
+      error: (error, _) =>
+          Center(child: Text('Unable to load checklist: $error')),
     );
   }
 
@@ -694,7 +1906,9 @@ class _ReportsTab extends ConsumerWidget {
 
         final currentWeek = _ReportTotals.fromReports(sorted.take(7).toList());
         final previousWeek = _ReportTotals.fromReports(
-          sorted.length > 7 ? sorted.skip(7).take(7).toList() : <DailyReportModel>[],
+          sorted.length > 7
+              ? sorted.skip(7).take(7).toList()
+              : <DailyReportModel>[],
         );
 
         return ListView(
@@ -764,14 +1978,20 @@ class _ReportsTab extends ConsumerWidget {
                     const SizedBox(height: 8),
                     ...sorted.take(7).map((report) {
                       final dateLabel = _formatDate(report.dateId);
-                      final total = max(1, report.done + report.missed + report.late + report.skipped);
+                      final total = max(
+                          1,
+                          report.done +
+                              report.missed +
+                              report.late +
+                              report.skipped);
                       final completion = report.done / total;
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: <Widget>[
-                            Text('$dateLabel: done ${report.done}, missed ${report.missed}, '
+                            Text(
+                                '$dateLabel: done ${report.done}, missed ${report.missed}, '
                                 'late ${report.late}, skipped ${report.skipped}'),
                             const SizedBox(height: 4),
                             LinearProgressIndicator(value: completion),
@@ -787,7 +2007,8 @@ class _ReportsTab extends ConsumerWidget {
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text('Unable to load reports: $error')),
+      error: (error, _) =>
+          Center(child: Text('Unable to load reports: $error')),
     );
   }
 
@@ -816,7 +2037,8 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
     const ChatMessageModel(
       id: 'init',
       fromUser: false,
-      text: 'Ask operational care questions. Clinical diagnosis, prescribing, and dose changes are blocked.',
+      text:
+          'Ask operational care questions. Clinical diagnosis, prescribing, and dose changes are blocked.',
     ),
   ];
   bool _loading = false;
@@ -860,9 +2082,12 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
           ? ''
           : '\n\n${response.bullets.map((item) => '- $item').join('\n')}';
       final meta = <String>[
-        if (response.disclaimer.isNotEmpty) 'Disclaimer: ${response.disclaimer}',
-        if (response.references.isNotEmpty) 'References: ${response.references.join(', ')}',
-        if (response.safetyFlags.isNotEmpty) 'Safety: ${response.safetyFlags.join(', ')}',
+        if (response.disclaimer.isNotEmpty)
+          'Disclaimer: ${response.disclaimer}',
+        if (response.references.isNotEmpty)
+          'References: ${response.references.join(', ')}',
+        if (response.safetyFlags.isNotEmpty)
+          'Safety: ${response.safetyFlags.join(', ')}',
       ];
 
       if (!mounted) {
@@ -952,7 +2177,8 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
                     textInputAction: TextInputAction.send,
                     onSubmitted: (_) => _send(),
                     decoration: const InputDecoration(
-                      hintText: 'Ask about workflow, checklist context, or insulin explanation.',
+                      hintText:
+                          'Ask about workflow, checklist context, or insulin explanation.',
                     ),
                   ),
                 ),
@@ -1039,7 +2265,8 @@ class _ReportTotals {
       late += report.late;
       skipped += report.skipped;
     }
-    return _ReportTotals(done: done, missed: missed, late: late, skipped: skipped);
+    return _ReportTotals(
+        done: done, missed: missed, late: late, skipped: skipped);
   }
 }
 

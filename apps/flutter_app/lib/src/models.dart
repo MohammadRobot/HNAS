@@ -62,6 +62,7 @@ class MedicineModel {
     this.instructions,
     this.doseAmount,
     this.doseUnit,
+    this.scheduleTimes = const <String>[],
     this.active = true,
   });
 
@@ -70,6 +71,7 @@ class MedicineModel {
   final String? instructions;
   final num? doseAmount;
   final String? doseUnit;
+  final List<String> scheduleTimes;
   final bool active;
 
   factory MedicineModel.fromMap(String id, Map<String, dynamic> map) {
@@ -79,6 +81,7 @@ class MedicineModel {
       instructions: _readString(map['instructions']),
       doseAmount: _readNum(map['doseAmount']),
       doseUnit: _readString(map['doseUnit']),
+      scheduleTimes: _readScheduleTimes(map),
       active: _readBool(map['active']) ?? true,
     );
   }
@@ -90,6 +93,7 @@ class ProcedureModel {
     required this.name,
     this.instructions,
     this.frequency,
+    this.scheduleTimes = const <String>[],
     this.active = true,
   });
 
@@ -97,6 +101,7 @@ class ProcedureModel {
   final String name;
   final String? instructions;
   final String? frequency;
+  final List<String> scheduleTimes;
   final bool active;
 
   factory ProcedureModel.fromMap(String id, Map<String, dynamic> map) {
@@ -105,6 +110,7 @@ class ProcedureModel {
       name: _readString(map['name']) ?? 'Procedure',
       instructions: _readString(map['instructions']),
       frequency: _readString(map['frequency']),
+      scheduleTimes: _readScheduleTimes(map),
       active: _readBool(map['active']) ?? true,
     );
   }
@@ -117,6 +123,9 @@ class InsulinProfileModel {
     required this.label,
     this.insulinName,
     this.active = true,
+    this.notes,
+    this.fixedUnits,
+    this.scheduleTimes = const <String>[],
     this.slidingScaleMgdl = const <num>[],
     this.mealBaseUnits = const <String, num>{},
     this.defaultBaseUnits,
@@ -127,6 +136,9 @@ class InsulinProfileModel {
   final String label;
   final String? insulinName;
   final bool active;
+  final String? notes;
+  final num? fixedUnits;
+  final List<String> scheduleTimes;
   final List<num> slidingScaleMgdl;
   final Map<String, num> mealBaseUnits;
   final num? defaultBaseUnits;
@@ -155,6 +167,9 @@ class InsulinProfileModel {
           'Insulin Profile',
       insulinName: _readString(map['insulinName']),
       active: _readBool(map['active']) ?? true,
+      notes: _readString(map['notes']),
+      fixedUnits: _readNum(map['fixedUnits']),
+      scheduleTimes: _readScheduleTimes(map),
       slidingScaleMgdl: _readNumList(map['slidingScaleMgdl']),
       mealBaseUnits: mealBase,
       defaultBaseUnits: _readNum(map['defaultBaseUnits']),
@@ -437,3 +452,60 @@ List<String> _normalizeDiagnosis(Object? value) {
   return const <String>[];
 }
 
+List<String> _readScheduleTimes(Map<String, dynamic> map) {
+  final times = <String>{};
+
+  void collect(Object? value) {
+    if (value is String) {
+      final normalized = _normalizeClockTime(value);
+      if (normalized != null) {
+        times.add(normalized);
+      }
+      return;
+    }
+
+    if (value is List) {
+      for (final item in value) {
+        collect(item);
+      }
+      return;
+    }
+
+    if (value is Map) {
+      collect(value['time']);
+      collect(value['times']);
+      collect(value['scheduleTimes']);
+      collect(value['entries']);
+      collect(value['at']);
+      collect(value['scheduledTime']);
+      collect(value['startTime']);
+    }
+  }
+
+  collect(map['time']);
+  collect(map['times']);
+  collect(map['scheduleTimes']);
+  collect(map['schedule']);
+
+  final result = times.toList();
+  result.sort();
+  return result;
+}
+
+String? _normalizeClockTime(String raw) {
+  final value = raw.trim();
+  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(value);
+  if (match == null) {
+    return null;
+  }
+
+  final hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  if (hour == null || minute == null) {
+    return null;
+  }
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+  return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+}

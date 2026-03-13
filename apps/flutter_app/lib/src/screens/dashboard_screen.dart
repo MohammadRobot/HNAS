@@ -17,11 +17,58 @@ class DashboardScreen extends ConsumerWidget {
 
     final profile = profileAsync.value;
     final role = profile?.role ?? 'unknown';
+    final canManagePatients = role == 'admin' || role == 'supervisor';
 
     void refreshDashboardData() {
       ref.invalidate(userProfileProvider);
       ref.invalidate(patientsStreamProvider);
       ref.invalidate(dashboardCountsProvider);
+    }
+
+    Future<void> openCreatePatientDialog() async {
+      if (profile == null) {
+        return;
+      }
+
+      final input = await showDialog<_CreatePatientInput>(
+        context: context,
+        builder: (dialogContext) => _CreatePatientDialog(
+          initialAgencyId: profile.agencyId,
+          canEditAgencyId: role == 'admin',
+        ),
+      );
+
+      if (input == null) {
+        return;
+      }
+
+      try {
+        final patientId = await ref.read(apiClientProvider).createPatient(
+              fullName: input.fullName,
+              timezone: input.timezone,
+              active: input.active,
+              dateOfBirth: input.dateOfBirth,
+              agencyId: input.agencyId,
+              assignedNurseIds: input.assignedNurseIds,
+            );
+
+        refreshDashboardData();
+
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Patient created successfully.')),
+        );
+        context.push('/patient/$patientId');
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to create patient: $error')),
+        );
+      }
     }
 
     Widget buildCountsContent() {
@@ -127,6 +174,12 @@ class DashboardScreen extends ConsumerWidget {
               child: Chip(
                 label: Text('${profile!.displayName} ($role)'),
               ),
+            ),
+          if (canManagePatients)
+            IconButton(
+              tooltip: 'Add patient',
+              onPressed: openCreatePatientDialog,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
             ),
           IconButton(
             tooltip: 'Refresh',
@@ -303,5 +356,217 @@ class _NoticeCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _CreatePatientInput {
+  const _CreatePatientInput({
+    required this.fullName,
+    required this.timezone,
+    required this.active,
+    this.dateOfBirth,
+    this.agencyId,
+    this.assignedNurseIds = const <String>[],
+  });
+
+  final String fullName;
+  final String timezone;
+  final bool active;
+  final String? dateOfBirth;
+  final String? agencyId;
+  final List<String> assignedNurseIds;
+}
+
+class _CreatePatientDialog extends StatefulWidget {
+  const _CreatePatientDialog({
+    required this.initialAgencyId,
+    required this.canEditAgencyId,
+  });
+
+  final String? initialAgencyId;
+  final bool canEditAgencyId;
+
+  @override
+  State<_CreatePatientDialog> createState() => _CreatePatientDialogState();
+}
+
+class _CreatePatientDialogState extends State<_CreatePatientDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _timezoneController;
+  late final TextEditingController _dateOfBirthController;
+  late final TextEditingController _agencyIdController;
+  late final TextEditingController _assignedNursesController;
+  bool _active = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _timezoneController = TextEditingController(text: 'Etc/UTC');
+    _dateOfBirthController = TextEditingController();
+    _agencyIdController = TextEditingController(
+      text: widget.initialAgencyId ?? '',
+    );
+    _assignedNursesController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _timezoneController.dispose();
+    _dateOfBirthController.dispose();
+    _agencyIdController.dispose();
+    _assignedNursesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add Patient'),
+      content: SizedBox(
+        width: 420,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Full name is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _timezoneController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Timezone',
+                    hintText: 'Etc/UTC',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Timezone is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _dateOfBirthController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Date of Birth (optional)',
+                    hintText: 'YYYY-MM-DD',
+                  ),
+                  validator: (value) {
+                    final raw = (value ?? '').trim();
+                    if (raw.isEmpty) {
+                      return null;
+                    }
+                    if (!_isValidDateId(raw)) {
+                      return 'Use YYYY-MM-DD format.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _assignedNursesController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Assigned Nurse UIDs (optional)',
+                    hintText: 'uid-1, uid-2',
+                  ),
+                ),
+                if (widget.canEditAgencyId) ...<Widget>[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _agencyIdController,
+                    textInputAction: TextInputAction.done,
+                    decoration: const InputDecoration(
+                      labelText: 'Agency ID',
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Agency ID is required.';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active'),
+                  value: _active,
+                  onChanged: (value) {
+                    setState(() {
+                      _active = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final assignedNurseIds = _assignedNursesController.text
+        .split(',')
+        .map((item) => item.trim())
+        .where((item) => item.isNotEmpty)
+        .toSet()
+        .toList();
+
+    final dateOfBirth = _dateOfBirthController.text.trim();
+    final agencyId = _agencyIdController.text.trim();
+
+    Navigator.of(context).pop(
+      _CreatePatientInput(
+        fullName: _nameController.text.trim(),
+        timezone: _timezoneController.text.trim(),
+        active: _active,
+        dateOfBirth: dateOfBirth.isEmpty ? null : dateOfBirth,
+        agencyId: agencyId.isEmpty ? null : agencyId,
+        assignedNurseIds: assignedNurseIds,
+      ),
+    );
+  }
+
+  bool _isValidDateId(String value) {
+    final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!pattern.hasMatch(value)) {
+      return false;
+    }
+    return DateTime.tryParse('${value}T00:00:00Z') != null;
   }
 }

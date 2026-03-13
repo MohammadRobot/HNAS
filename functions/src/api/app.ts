@@ -18,6 +18,10 @@ import {
   computeRapidDose,
   type RapidDoseProfile,
 } from '../lib/insulin';
+import {
+  generateChecklistTasks,
+  type ChecklistSourceRecord,
+} from '../lib/checklistGenerator';
 import {firestore, toDateId} from '../lib/firestore';
 import {type DailyChecklist, type Task} from '../lib/types';
 
@@ -267,6 +271,405 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
   res.status(200).json({
     ok: true,
     patientId,
+  });
+}));
+
+app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const date = readOptionalString(body, 'date') ?? toDateId(new Date());
+  assertDateId(date, 'date');
+  await assertPatientAccess(context.user, patientId);
+
+  const patientRef = firestore.collection('patients').doc(patientId);
+  const patientSnap = await patientRef.get();
+  if (!patientSnap.exists) {
+    throw new HttpError(404, 'not-found', `Patient "${patientId}" not found.`);
+  }
+
+  const patientData = (patientSnap.data() ?? {}) as UnknownRecord;
+  const [medicinesSnap, proceduresSnap, insulinSnap] = await Promise.all([
+    patientRef.collection('medicines').where('active', '==', true).get(),
+    patientRef.collection('procedures').where('active', '==', true).get(),
+    patientRef.collection('insulinProfiles').where('active', '==', true).get(),
+  ]);
+
+  const medicines = medicinesSnap.docs.map(toChecklistSourceRecord);
+  const procedures = proceduresSnap.docs.map(toChecklistSourceRecord);
+  const insulinProfiles = resolveInsulinProfilesForChecklist(
+      patientData,
+      insulinSnap.docs.map(toChecklistSourceRecord),
+  );
+  const tasks = generateChecklistTasks({
+    patientId,
+    dateId: date,
+    medicines,
+    procedures,
+    insulinProfiles,
+  });
+
+  const checklistRef = patientRef.collection('dailyChecklists').doc(date);
+  const existingSnap = await checklistRef.get();
+  const existing = existingSnap.exists ?
+    (existingSnap.data() as Partial<DailyChecklist>) :
+    undefined;
+  const taskIds = new Set(tasks.map((task) => task.id));
+  const existingResults = toMutableTaskResults(existing?.results)
+      .filter((result) => taskIds.has(result.taskId));
+  const existingIssuesRaw = existing?.issues;
+  const existingIssues = Array.isArray(existingIssuesRaw) ? existingIssuesRaw : [];
+  const nowIso = new Date().toISOString();
+  const existingCreatedAt = existing?.createdAt;
+  const createdAt = typeof existingCreatedAt === 'string' && existingCreatedAt.length > 0 ?
+    existingCreatedAt :
+    nowIso;
+
+  const payload: UnknownRecord = {
+    id: date,
+    patientId,
+    dateId: date,
+    tasks,
+    results: existingResults,
+    issues: existingIssues,
+    createdAt,
+    updatedAt: nowIso,
+  };
+
+  await checklistRef.set(payload, {merge: false});
+
+  res.status(200).json({
+    ok: true,
+    patientId,
+    date,
+    taskCount: tasks.length,
+  });
+}));
+
+app.post('/api/medicines/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const name = readRequiredString(body, 'name');
+  const instructions = readOptionalString(body, 'instructions');
+  const doseAmount = readOptionalNumber(body, 'doseAmount');
+  const doseUnit = readOptionalString(body, 'doseUnit');
+  const active = readOptionalBoolean(body, 'active') ?? true;
+  const scheduleTimes = readOptionalTimeArray(body, 'scheduleTimes');
+  const nowIso = new Date().toISOString();
+
+  const medicineRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('medicines')
+      .doc();
+  const payload: UnknownRecord = {
+    id: medicineRef.id,
+    name,
+    active,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (instructions) {
+    payload.instructions = instructions;
+  }
+  if (doseAmount !== undefined) {
+    payload.doseAmount = doseAmount;
+  }
+  if (doseUnit) {
+    payload.doseUnit = doseUnit;
+  }
+  if (scheduleTimes && scheduleTimes.length > 0) {
+    payload.scheduleTimes = scheduleTimes;
+  }
+
+  await medicineRef.set(payload);
+
+  res.status(201).json({
+    ok: true,
+    medicineId: medicineRef.id,
+  });
+}));
+
+app.post('/api/medicines/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const medicineId = readRequiredString(body, 'medicineId');
+  await assertPatientAccess(context.user, patientId);
+
+  const medicineRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('medicines')
+      .doc(medicineId);
+  await assertDocumentExists(
+      medicineRef,
+      `Medicine "${medicineId}" for patient "${patientId}" was not found.`,
+  );
+
+  const patch: UnknownRecord = {};
+  if (hasOwn(body, 'name')) {
+    patch.name = readRequiredString(body, 'name');
+  }
+  if (hasOwn(body, 'instructions')) {
+    patch.instructions = readRequiredString(body, 'instructions');
+  }
+  if (hasOwn(body, 'doseAmount')) {
+    patch.doseAmount = readRequiredNumber(body, 'doseAmount');
+  }
+  if (hasOwn(body, 'doseUnit')) {
+    patch.doseUnit = readRequiredString(body, 'doseUnit');
+  }
+  if (hasOwn(body, 'active')) {
+    patch.active = readRequiredBoolean(body, 'active');
+  }
+  if (hasOwn(body, 'scheduleTimes')) {
+    patch.scheduleTimes = readRequiredTimeArray(body, 'scheduleTimes');
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable medicine fields provided.');
+  }
+
+  patch.updatedAt = new Date().toISOString();
+  await medicineRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    medicineId,
+  });
+}));
+
+app.post('/api/procedures/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const name = readRequiredString(body, 'name');
+  const instructions = readOptionalString(body, 'instructions');
+  const frequency = readOptionalString(body, 'frequency');
+  const active = readOptionalBoolean(body, 'active') ?? true;
+  const scheduleTimes = readOptionalTimeArray(body, 'scheduleTimes');
+  const nowIso = new Date().toISOString();
+
+  const procedureRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('procedures')
+      .doc();
+  const payload: UnknownRecord = {
+    id: procedureRef.id,
+    name,
+    active,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (instructions) {
+    payload.instructions = instructions;
+  }
+  if (frequency) {
+    payload.frequency = frequency;
+  }
+  if (scheduleTimes && scheduleTimes.length > 0) {
+    payload.scheduleTimes = scheduleTimes;
+  }
+
+  await procedureRef.set(payload);
+
+  res.status(201).json({
+    ok: true,
+    procedureId: procedureRef.id,
+  });
+}));
+
+app.post('/api/procedures/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const procedureId = readRequiredString(body, 'procedureId');
+  await assertPatientAccess(context.user, patientId);
+
+  const procedureRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('procedures')
+      .doc(procedureId);
+  await assertDocumentExists(
+      procedureRef,
+      `Procedure "${procedureId}" for patient "${patientId}" was not found.`,
+  );
+
+  const patch: UnknownRecord = {};
+  if (hasOwn(body, 'name')) {
+    patch.name = readRequiredString(body, 'name');
+  }
+  if (hasOwn(body, 'instructions')) {
+    patch.instructions = readRequiredString(body, 'instructions');
+  }
+  if (hasOwn(body, 'frequency')) {
+    patch.frequency = readRequiredString(body, 'frequency');
+  }
+  if (hasOwn(body, 'active')) {
+    patch.active = readRequiredBoolean(body, 'active');
+  }
+  if (hasOwn(body, 'scheduleTimes')) {
+    patch.scheduleTimes = readRequiredTimeArray(body, 'scheduleTimes');
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable procedure fields provided.');
+  }
+
+  patch.updatedAt = new Date().toISOString();
+  await procedureRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    procedureId,
+  });
+}));
+
+app.post('/api/insulinProfiles/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const type = readAndValidateInsulinType(body, 'type', 'rapid');
+  const label = readRequiredString(body, 'label');
+  const insulinName = readOptionalString(body, 'insulinName');
+  const active = readOptionalBoolean(body, 'active') ?? true;
+  const slidingScaleMgdl = readOptionalNumberArray(body, 'slidingScaleMgdl');
+  const mealBaseUnits = readOptionalNumberMap(body, 'mealBaseUnits');
+  const defaultBaseUnits = readOptionalNumber(body, 'defaultBaseUnits');
+  const fixedUnits = readOptionalNumber(body, 'fixedUnits');
+  const notes = readOptionalString(body, 'notes');
+  const scheduleTimes = readOptionalTimeArray(body, 'scheduleTimes');
+  const nowIso = new Date().toISOString();
+
+  const profileRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('insulinProfiles')
+      .doc();
+  const payload: UnknownRecord = {
+    id: profileRef.id,
+    type,
+    label,
+    active,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (insulinName) {
+    payload.insulinName = insulinName;
+  }
+  if (slidingScaleMgdl && slidingScaleMgdl.length > 0) {
+    payload.slidingScaleMgdl = slidingScaleMgdl;
+  }
+  if (mealBaseUnits && Object.keys(mealBaseUnits).length > 0) {
+    payload.mealBaseUnits = mealBaseUnits;
+  }
+  if (defaultBaseUnits !== undefined) {
+    payload.defaultBaseUnits = defaultBaseUnits;
+  }
+  if (fixedUnits !== undefined) {
+    payload.fixedUnits = fixedUnits;
+  }
+  if (notes) {
+    payload.notes = notes;
+  }
+  if (scheduleTimes && scheduleTimes.length > 0) {
+    payload.scheduleTimes = scheduleTimes;
+  }
+
+  await profileRef.set(payload);
+
+  res.status(201).json({
+    ok: true,
+    insulinProfileId: profileRef.id,
+  });
+}));
+
+app.post('/api/insulinProfiles/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const insulinProfileId = readRequiredString(body, 'insulinProfileId');
+  await assertPatientAccess(context.user, patientId);
+
+  const profileRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('insulinProfiles')
+      .doc(insulinProfileId);
+  await assertDocumentExists(
+      profileRef,
+      `Insulin profile "${insulinProfileId}" for patient "${patientId}" was not found.`,
+  );
+
+  const patch: UnknownRecord = {};
+  if (hasOwn(body, 'type')) {
+    patch.type = readAndValidateInsulinType(body, 'type', undefined);
+  }
+  if (hasOwn(body, 'label')) {
+    patch.label = readRequiredString(body, 'label');
+  }
+  if (hasOwn(body, 'insulinName')) {
+    patch.insulinName = readRequiredString(body, 'insulinName');
+  }
+  if (hasOwn(body, 'active')) {
+    patch.active = readRequiredBoolean(body, 'active');
+  }
+  if (hasOwn(body, 'slidingScaleMgdl')) {
+    patch.slidingScaleMgdl = readRequiredNumberArray(body, 'slidingScaleMgdl');
+  }
+  if (hasOwn(body, 'mealBaseUnits')) {
+    patch.mealBaseUnits = readRequiredNumberMap(body, 'mealBaseUnits');
+  }
+  if (hasOwn(body, 'defaultBaseUnits')) {
+    patch.defaultBaseUnits = readRequiredNumber(body, 'defaultBaseUnits');
+  }
+  if (hasOwn(body, 'fixedUnits')) {
+    patch.fixedUnits = readRequiredNumber(body, 'fixedUnits');
+  }
+  if (hasOwn(body, 'notes')) {
+    patch.notes = readRequiredString(body, 'notes');
+  }
+  if (hasOwn(body, 'scheduleTimes')) {
+    patch.scheduleTimes = readRequiredTimeArray(body, 'scheduleTimes');
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable insulin profile fields provided.');
+  }
+
+  patch.updatedAt = new Date().toISOString();
+  await profileRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    insulinProfileId,
   });
 }));
 
@@ -1223,6 +1626,61 @@ async function writeAiQaLog(input: WriteAiLogInput): Promise<void> {
   await logRef.set(payload);
 }
 
+function toChecklistSourceRecord(
+    snapshot: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>,
+): ChecklistSourceRecord {
+  return {
+    id: snapshot.id,
+    ...(snapshot.data() as UnknownRecord),
+  };
+}
+
+function resolveInsulinProfilesForChecklist(
+    patientData: UnknownRecord,
+    subcollectionProfiles: ChecklistSourceRecord[],
+): ChecklistSourceRecord[] {
+  const inlineProfiles = extractInlineInsulinProfilesForChecklist(patientData);
+  if (subcollectionProfiles.length === 0) {
+    return inlineProfiles;
+  }
+
+  const merged = new Map<string, ChecklistSourceRecord>();
+  for (const profile of inlineProfiles) {
+    merged.set(profile.id, profile);
+  }
+  for (const profile of subcollectionProfiles) {
+    merged.set(profile.id, profile);
+  }
+
+  return Array.from(merged.values());
+}
+
+function extractInlineInsulinProfilesForChecklist(
+    patientData: UnknownRecord,
+): ChecklistSourceRecord[] {
+  const rawProfiles = readRecordArray(patientData, 'insulinProfiles');
+  if (rawProfiles.length === 0) {
+    return [];
+  }
+
+  const profiles: ChecklistSourceRecord[] = [];
+  rawProfiles.forEach((rawProfile, index) => {
+    const active = typeof rawProfile.active !== 'boolean' || rawProfile.active;
+    if (!active) {
+      return;
+    }
+
+    const id = typeof rawProfile.id === 'string' && rawProfile.id.length > 0 ?
+      rawProfile.id :
+      `inline_${index + 1}`;
+    profiles.push({
+      id,
+      ...rawProfile,
+    });
+  });
+  return profiles;
+}
+
 function normalizeDiagnosis(value: unknown): string[] {
   if (typeof value === 'string' && value.trim().length > 0) {
     return [value.trim()];
@@ -1474,6 +1932,16 @@ function readOptionalObject(obj: UnknownRecord, key: string): UnknownRecord | un
   return value;
 }
 
+async function assertDocumentExists(
+    documentRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>,
+    notFoundMessage: string,
+): Promise<void> {
+  const snapshot = await documentRef.get();
+  if (!snapshot.exists) {
+    throw new HttpError(404, 'not-found', notFoundMessage);
+  }
+}
+
 function readRequiredArray(obj: UnknownRecord, key: string): unknown[] {
   const value = obj[key];
   if (!Array.isArray(value)) {
@@ -1488,6 +1956,69 @@ function readOptionalArray(obj: UnknownRecord, key: string): unknown[] | undefin
     return undefined;
   }
   return readRequiredArray(obj, key);
+}
+
+function readRequiredNumberArray(obj: UnknownRecord, key: string): number[] {
+  const value = obj[key];
+  if (!Array.isArray(value)) {
+    throw new HttpError(400, 'invalid-argument', `${key} must be an array of numbers.`);
+  }
+
+  const numbers = value.filter((item): item is number => (
+    typeof item === 'number' && Number.isFinite(item)
+  ));
+  if (numbers.length !== value.length) {
+    throw new HttpError(400, 'invalid-argument', `${key} must contain only finite numbers.`);
+  }
+  return numbers;
+}
+
+function readOptionalNumberArray(obj: UnknownRecord, key: string): number[] | undefined {
+  const value = obj[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  return readRequiredNumberArray(obj, key);
+}
+
+function readRequiredNumberMap(obj: UnknownRecord, key: string): Record<string, number> {
+  const value = obj[key];
+  if (!isRecord(value)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be an object with numeric values.`,
+    );
+  }
+
+  const result: Record<string, number> = {};
+  for (const [entryKey, entryValue] of Object.entries(value)) {
+    const normalizedKey = entryKey.trim();
+    if (!normalizedKey) {
+      continue;
+    }
+    if (typeof entryValue !== 'number' || !Number.isFinite(entryValue)) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          `${key}.${normalizedKey} must be a finite number.`,
+      );
+    }
+    result[normalizedKey] = entryValue;
+  }
+
+  return result;
+}
+
+function readOptionalNumberMap(
+    obj: UnknownRecord,
+    key: string,
+): Record<string, number> | undefined {
+  const value = obj[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  return readRequiredNumberMap(obj, key);
 }
 
 function readRequiredStringArray(obj: UnknownRecord, key: string): string[] {
@@ -1510,6 +2041,53 @@ function readOptionalStringArray(obj: UnknownRecord, key: string): string[] | un
     return undefined;
   }
   return readRequiredStringArray(obj, key);
+}
+
+function readRequiredTimeArray(obj: UnknownRecord, key: string): string[] {
+  const times = readRequiredStringArray(obj, key);
+  const normalized = times.map((time) => normalizeClockTime(time, key));
+  return Array.from(new Set(normalized)).sort();
+}
+
+function readOptionalTimeArray(obj: UnknownRecord, key: string): string[] | undefined {
+  const value = obj[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  return readRequiredTimeArray(obj, key);
+}
+
+function normalizeClockTime(raw: string, key: string): string {
+  const value = raw.trim();
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value);
+  if (!match) {
+    throw new HttpError(400, 'invalid-argument', `${key} entries must use HH:mm format.`);
+  }
+
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new HttpError(400, 'invalid-argument', `${key} entries must be valid 24h times.`);
+  }
+
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function readAndValidateInsulinType(
+    obj: UnknownRecord,
+    key: string,
+    defaultValue: string | undefined,
+): string {
+  const raw = hasOwn(obj, key) ? readRequiredString(obj, key) : defaultValue;
+  if (!raw) {
+    throw new HttpError(400, 'invalid-argument', `${key} is required.`);
+  }
+
+  const normalized = raw.toLowerCase();
+  if (normalized !== 'rapid' && normalized !== 'basal') {
+    throw new HttpError(400, 'invalid-argument', `${key} must be either "rapid" or "basal".`);
+  }
+  return normalized;
 }
 
 function readRequiredString(obj: UnknownRecord, key: string): string {
