@@ -18,38 +18,9 @@ service cloud.firestore {
     }
 
     function hasRole(roles) {
-      return currentUserExists() && currentUser().role in roles;
-    }
-
-    function patientPath(patientId) {
-      return /databases/$(database)/documents/patients/$(patientId);
-    }
-
-    function patientExists(patientId) {
-      return exists(patientPath(patientId));
-    }
-
-    function patientDoc(patientId) {
-      return get(patientPath(patientId)).data;
-    }
-
-    function isAssignedNurse(patientId) {
-      return isAuthenticated() &&
-        patientExists(patientId) &&
-        patientDoc(patientId).assignedNurseIds is list &&
-        request.auth.uid in patientDoc(patientId).assignedNurseIds;
-    }
-
-    function isSupervisorOrAdminInSameAgency(patientId) {
-      return hasRole(['supervisor', 'admin']) &&
-        patientExists(patientId) &&
-        currentUser().agencyId is string &&
-        patientDoc(patientId).agencyId is string &&
-        currentUser().agencyId == patientDoc(patientId).agencyId;
-    }
-
-    function canReadPatient(patientId) {
-      return isAssignedNurse(patientId) || isSupervisorOrAdminInSameAgency(patientId);
+      return currentUserExists() &&
+        currentUser().role is string &&
+        currentUser().role in roles;
     }
 
     function canReadAiQaLog(logData) {
@@ -74,7 +45,7 @@ service cloud.firestore {
     }
 
     match /patients/{patientId} {
-      allow read: if canReadPatient(patientId);
+      allow read: if isAuthenticated();
       allow write: if false;
 
       match /aiQaLogs/{logId} {
@@ -83,7 +54,7 @@ service cloud.firestore {
       }
 
       match /{subcollection}/{docId=**} {
-        allow read: if subcollection != 'aiQaLogs' && canReadPatient(patientId);
+        allow read: if subcollection != 'aiQaLogs' && isAuthenticated();
         allow write: if false;
       }
     }

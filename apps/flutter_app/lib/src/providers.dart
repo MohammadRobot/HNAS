@@ -1,8 +1,12 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models.dart';
 import 'services/api_client.dart';
+
+const _firebaseStreamTimeout = Duration(seconds: 15);
 
 final firebaseAuthProvider = Provider<FirebaseAuth>((ref) {
   return FirebaseAuth.instance;
@@ -18,7 +22,10 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final authStateProvider = StreamProvider<User?>((ref) {
-  return ref.watch(firebaseAuthProvider).authStateChanges();
+  return _withStreamTimeout(
+    ref.watch(firebaseAuthProvider).authStateChanges(),
+    'authentication state',
+  );
 });
 
 final currentUserIdProvider = Provider<String?>((ref) {
@@ -26,18 +33,26 @@ final currentUserIdProvider = Provider<String?>((ref) {
 });
 
 final userProfileProvider = StreamProvider<AppUserProfile?>((ref) {
-  final uid = ref.watch(currentUserIdProvider);
+  final authAsync = ref.watch(authStateProvider);
+  if (authAsync.hasError) {
+    return Stream.error(authAsync.error!, authAsync.stackTrace);
+  }
+
+  final uid = authAsync.value?.uid;
   if (uid == null) {
     return Stream.value(null);
   }
 
   final firestore = ref.watch(firestoreProvider);
-  return firestore.collection('users').doc(uid).snapshots().map((snapshot) {
-    if (!snapshot.exists || snapshot.data() == null) {
-      return null;
-    }
-    return AppUserProfile.fromMap(uid, snapshot.data()!);
-  });
+  return _withStreamTimeout(
+    firestore.collection('users').doc(uid).snapshots().map((snapshot) {
+      if (!snapshot.exists || snapshot.data() == null) {
+        return null;
+      }
+      return AppUserProfile.fromMap(uid, snapshot.data()!);
+    }),
+    'user profile',
+  );
 });
 
 final todayDateIdProvider = Provider<String>((ref) {
@@ -48,7 +63,12 @@ final todayDateIdProvider = Provider<String>((ref) {
 });
 
 final patientsStreamProvider = StreamProvider<List<PatientModel>>((ref) {
-  final userProfile = ref.watch(userProfileProvider).value;
+  final userProfileAsync = ref.watch(userProfileProvider);
+  if (userProfileAsync.hasError) {
+    return Stream.error(userProfileAsync.error!, userProfileAsync.stackTrace);
+  }
+
+  final userProfile = userProfileAsync.value;
   final uid = ref.watch(currentUserIdProvider);
   if (uid == null || userProfile == null) {
     return Stream.value(const <PatientModel>[]);
@@ -59,69 +79,100 @@ final patientsStreamProvider = StreamProvider<List<PatientModel>>((ref) {
 
   if (userProfile.role == 'nurse') {
     query = query.where('assignedNurseIds', arrayContains: uid);
-  } else if ((userProfile.role == 'admin' || userProfile.role == 'supervisor') &&
-      userProfile.agencyId != null &&
-      userProfile.agencyId!.isNotEmpty) {
-    query = query.where('agencyId', isEqualTo: userProfile.agencyId);
+  } else if (userProfile.role == 'admin' || userProfile.role == 'supervisor') {
+    final agencyId = userProfile.agencyId;
+    if (agencyId == null || agencyId.isEmpty) {
+      return Stream.error(
+        StateError(
+          'User profile is missing agencyId. '
+          'Update /users/$uid with a valid agencyId.',
+        ),
+      );
+    }
+    query = query.where('agencyId', isEqualTo: agencyId);
+  } else {
+    return Stream.error(
+      StateError(
+        'Unsupported role "${userProfile.role}" for patient access.',
+      ),
+    );
   }
 
-  return query.snapshots().map((snapshot) {
-    return snapshot.docs
-        .map((doc) => PatientModel.fromMap(doc.id, doc.data()))
-        .toList()
-      ..sort((a, b) => a.fullName.compareTo(b.fullName));
-  });
+  return _withStreamTimeout(
+    query.snapshots().map((snapshot) {
+      return snapshot.docs
+          .map((doc) => PatientModel.fromMap(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => a.fullName.compareTo(b.fullName));
+    }),
+    'patients list',
+  );
 });
 
-final patientProvider = StreamProvider.family<PatientModel?, String>((ref, patientId) {
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(patientId)
-      .snapshots()
-      .map((snapshot) {
-    if (!snapshot.exists || snapshot.data() == null) {
-      return null;
-    }
-    return PatientModel.fromMap(snapshot.id, snapshot.data()!);
-  });
+final patientProvider =
+    StreamProvider.family<PatientModel?, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .snapshots()
+        .map((snapshot) {
+      if (!snapshot.exists || snapshot.data() == null) {
+        return null;
+      }
+      return PatientModel.fromMap(snapshot.id, snapshot.data()!);
+    }),
+    'patient details',
+  );
 });
 
-final medicinesProvider = StreamProvider.family<List<MedicineModel>, String>((ref, patientId) {
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(patientId)
-      .collection('medicines')
-      .snapshots()
-      .map((snapshot) {
-    return snapshot.docs
-        .map((doc) => MedicineModel.fromMap(doc.id, doc.data()))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-  });
+final medicinesProvider =
+    StreamProvider.family<List<MedicineModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('medicines')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => MedicineModel.fromMap(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+    }),
+    'medicines',
+  );
 });
 
-final proceduresProvider = StreamProvider.family<List<ProcedureModel>, String>((ref, patientId) {
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(patientId)
-      .collection('procedures')
-      .snapshots()
-      .map((snapshot) {
-    return snapshot.docs
-        .map((doc) => ProcedureModel.fromMap(doc.id, doc.data()))
-        .toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
-  });
+final proceduresProvider =
+    StreamProvider.family<List<ProcedureModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('procedures')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => ProcedureModel.fromMap(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+    }),
+    'procedures',
+  );
 });
 
 final insulinProfilesProvider =
     StreamProvider.family<List<InsulinProfileModel>, String>((ref, patientId) {
   final firestore = ref.watch(firestoreProvider);
   final patientRef = firestore.collection('patients').doc(patientId);
-  return patientRef.collection('insulinProfiles').snapshots().asyncMap((snapshot) async {
+  return _withStreamTimeout(
+    patientRef.collection('insulinProfiles').snapshots(),
+    'insulin profiles',
+  ).asyncMap((snapshot) async {
     final profiles = snapshot.docs
         .map((doc) => InsulinProfileModel.fromMap(doc.id, doc.data()))
         .toList();
@@ -131,7 +182,9 @@ final insulinProfilesProvider =
       return profiles;
     }
 
-    final patientSnapshot = await patientRef.get();
+    final patientSnapshot = await patientRef.get().timeout(
+          const Duration(seconds: 10),
+        );
     final data = patientSnapshot.data();
     if (data == null) {
       return const <InsulinProfileModel>[];
@@ -142,16 +195,13 @@ final insulinProfilesProvider =
       return const <InsulinProfileModel>[];
     }
 
-    final result = inline
-        .whereType<Map>()
-        .map((entry) {
-          final map = entry.cast<String, dynamic>();
-          final id = map['id'] is String && (map['id'] as String).isNotEmpty
-              ? map['id'] as String
-              : 'inline';
-          return InsulinProfileModel.fromMap(id, map);
-        })
-        .toList();
+    final result = inline.whereType<Map>().map((entry) {
+      final map = entry.cast<String, dynamic>();
+      final id = map['id'] is String && (map['id'] as String).isNotEmpty
+          ? map['id'] as String
+          : 'inline';
+      return InsulinProfileModel.fromMap(id, map);
+    }).toList();
     result.sort((a, b) => a.label.compareTo(b.label));
     return result;
   });
@@ -182,99 +232,197 @@ class ChecklistQuery {
 
 final checklistProvider =
     StreamProvider.family<DailyChecklistModel?, ChecklistQuery>((ref, query) {
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(query.patientId)
-      .collection('dailyChecklists')
-      .doc(query.dateId)
-      .snapshots()
-      .map((snapshot) {
-    if (!snapshot.exists || snapshot.data() == null) {
-      return null;
-    }
-    return DailyChecklistModel.fromMap(snapshot.id, snapshot.data()!);
-  });
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(query.patientId)
+        .collection('dailyChecklists')
+        .doc(query.dateId)
+        .snapshots()
+        .map((snapshot) {
+      if (!snapshot.exists || snapshot.data() == null) {
+        return null;
+      }
+      return DailyChecklistModel.fromMap(snapshot.id, snapshot.data()!);
+    }),
+    'daily checklist',
+  );
 });
 
-final reportsProvider = StreamProvider.family<List<DailyReportModel>, String>((ref, patientId) {
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(patientId)
-      .collection('reports')
-      .doc('daily')
-      .collection('byDate')
-      .orderBy('dateId', descending: true)
-      .limit(14)
-      .snapshots()
-      .map((snapshot) {
-    return snapshot.docs
-        .map((doc) => DailyReportModel.fromMap(doc.id, doc.data()))
-        .toList();
-  });
+final reportsProvider =
+    StreamProvider.family<List<DailyReportModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('reports')
+        .doc('daily')
+        .collection('byDate')
+        .orderBy('dateId', descending: true)
+        .limit(14)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => DailyReportModel.fromMap(doc.id, doc.data()))
+          .toList();
+    }),
+    'reports',
+  );
 });
 
-final todayReportProvider = StreamProvider.family<DailyReportModel?, String>((ref, patientId) {
+final todayReportProvider =
+    StreamProvider.family<DailyReportModel?, String>((ref, patientId) {
   final dateId = ref.watch(todayDateIdProvider);
-  return ref
-      .watch(firestoreProvider)
-      .collection('patients')
-      .doc(patientId)
-      .collection('reports')
-      .doc('daily')
-      .collection('byDate')
-      .doc(dateId)
-      .snapshots()
-      .map((snapshot) {
-    if (!snapshot.exists || snapshot.data() == null) {
-      return null;
-    }
-    return DailyReportModel.fromMap(snapshot.id, snapshot.data()!);
-  });
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('reports')
+        .doc('daily')
+        .collection('byDate')
+        .doc(dateId)
+        .snapshots()
+        .map((snapshot) {
+      if (!snapshot.exists || snapshot.data() == null) {
+        return null;
+      }
+      return DailyReportModel.fromMap(snapshot.id, snapshot.data()!);
+    }),
+    'today report',
+  );
 });
 
 final dashboardCountsProvider = StreamProvider<DashboardCounts>((ref) {
   final dateId = ref.watch(todayDateIdProvider);
-  final totalPatients = ref.watch(patientsStreamProvider).value?.length ?? 0;
+  final patientsAsync = ref.watch(patientsStreamProvider);
+  if (patientsAsync.hasError) {
+    return Stream.error(patientsAsync.error!, patientsAsync.stackTrace);
+  }
+  final totalPatients = patientsAsync.value?.length ?? 0;
 
-  return ref
-      .watch(firestoreProvider)
-      .collectionGroup('dailyChecklists')
-      .where('dateId', isEqualTo: dateId)
-      .snapshots()
-      .map((snapshot) {
-    var done = 0;
-    var missed = 0;
-    var late = 0;
-    var skipped = 0;
+  // Firestore Web SDK currently crashes intermittently on emulator watch streams
+  // for this collection-group query. Keep dashboard usable by returning
+  // patient totals until the upstream SDK issue is resolved.
+  if (kIsWeb) {
+    return Stream.value(
+      DashboardCounts(
+        totalPatients: totalPatients,
+        done: 0,
+        missed: 0,
+        late: 0,
+        skipped: 0,
+      ),
+    );
+  }
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      final checklist = DailyChecklistModel.fromMap(doc.id, data);
-      final resultMap = checklist.resultByTaskId();
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collectionGroup('dailyChecklists')
+        .where('dateId', isEqualTo: dateId)
+        .snapshots()
+        .map((snapshot) {
+      var done = 0;
+      var missed = 0;
+      var late = 0;
+      var skipped = 0;
 
-      for (final task in checklist.tasks) {
-        final status = resultMap[task.id]?.status ?? 'pending';
-        if (status == 'completed' || status == 'done') {
-          done += 1;
-        } else if (status == 'late') {
-          late += 1;
-        } else if (status == 'skipped') {
-          skipped += 1;
-        } else {
-          missed += 1;
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final checklist = DailyChecklistModel.fromMap(doc.id, data);
+        final resultMap = checklist.resultByTaskId();
+
+        for (final task in checklist.tasks) {
+          final status = resultMap[task.id]?.status ?? 'pending';
+          if (status == 'completed' || status == 'done') {
+            done += 1;
+          } else if (status == 'late') {
+            late += 1;
+          } else if (status == 'skipped') {
+            skipped += 1;
+          } else {
+            missed += 1;
+          }
         }
       }
-    }
 
-    return DashboardCounts(
-      totalPatients: totalPatients,
-      done: done,
-      missed: missed,
-      late: late,
-      skipped: skipped,
-    );
-  });
+      return DashboardCounts(
+        totalPatients: totalPatients,
+        done: done,
+        missed: missed,
+        late: late,
+        skipped: skipped,
+      );
+    }),
+    'dashboard counts',
+  );
 });
 
+Stream<T> _withStreamTimeout<T>(Stream<T> stream, String label) {
+  // Work around a Firestore Web SDK assertion crash seen with wrapped
+  // watch streams while connected to the local emulator.
+  if (kIsWeb) {
+    return stream;
+  }
+
+  return Stream<T>.multi((controller) {
+    var receivedFirstEvent = false;
+    var isClosed = false;
+
+    void closeOnce() {
+      if (isClosed) {
+        return;
+      }
+      isClosed = true;
+      controller.close();
+    }
+
+    late final StreamSubscription<T> subscription;
+    final timeout = Timer(_firebaseStreamTimeout, () {
+      if (receivedFirstEvent || isClosed) {
+        return;
+      }
+      controller.addError(
+        TimeoutException(
+          'Timed out while loading $label. '
+          'Ensure emulators are running and demo data is seeded.',
+        ),
+      );
+      unawaited(subscription.cancel());
+      closeOnce();
+    });
+
+    subscription = stream.listen(
+      (event) {
+        if (!receivedFirstEvent) {
+          receivedFirstEvent = true;
+          timeout.cancel();
+        }
+        if (!isClosed) {
+          controller.add(event);
+        }
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (!receivedFirstEvent) {
+          timeout.cancel();
+        }
+        if (!isClosed) {
+          controller.addError(error, stackTrace);
+        }
+      },
+      onDone: () {
+        timeout.cancel();
+        closeOnce();
+      },
+    );
+
+    controller.onCancel = () async {
+      timeout.cancel();
+      isClosed = true;
+      await subscription.cancel();
+    };
+  });
+}

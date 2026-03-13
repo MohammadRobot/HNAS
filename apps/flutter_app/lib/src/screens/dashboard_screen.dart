@@ -13,9 +13,109 @@ class DashboardScreen extends ConsumerWidget {
     final profileAsync = ref.watch(userProfileProvider);
     final patientsAsync = ref.watch(patientsStreamProvider);
     final countsAsync = ref.watch(dashboardCountsProvider);
+    final uid = ref.watch(currentUserIdProvider);
 
     final profile = profileAsync.value;
     final role = profile?.role ?? 'unknown';
+
+    void refreshDashboardData() {
+      ref.invalidate(userProfileProvider);
+      ref.invalidate(patientsStreamProvider);
+      ref.invalidate(dashboardCountsProvider);
+    }
+
+    Widget buildCountsContent() {
+      if (profileAsync.isLoading) {
+        return const _LoadingBlock(height: 70);
+      }
+
+      if (profileAsync.hasError) {
+        return _NoticeCard(
+          message: 'Unable to load user profile: ${profileAsync.error}',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        );
+      }
+
+      if (profile == null) {
+        return _NoticeCard(
+          message:
+              'No user profile found at /users/$uid. Seed demo data or create this document.',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        );
+      }
+
+      return countsAsync.when(
+        data: (counts) => _DashboardCountsRow(counts: counts),
+        loading: () => const _LoadingBlock(height: 70),
+        error: (error, _) => _NoticeCard(
+          message: 'Unable to load counts: $error',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        ),
+      );
+    }
+
+    Widget buildPatientsContent() {
+      if (profileAsync.isLoading) {
+        return const Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: _LoadingBlock(height: 90),
+          ),
+        );
+      }
+
+      if (profileAsync.hasError) {
+        return _NoticeCard(
+          message: 'Unable to load user profile: ${profileAsync.error}',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        );
+      }
+
+      if (profile == null) {
+        return _NoticeCard(
+          message:
+              'No user profile found at /users/$uid. Without this profile the patient list cannot be loaded.',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        );
+      }
+
+      return patientsAsync.when(
+        data: (patients) {
+          if (patients.isEmpty) {
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('No patients available for role "$role".'),
+              ),
+            );
+          }
+
+          return Card(
+            child: Column(
+              children: patients
+                  .map((patient) => _PatientTile(patient: patient))
+                  .toList(),
+            ),
+          );
+        },
+        loading: () => const Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: _LoadingBlock(height: 90),
+          ),
+        ),
+        error: (error, _) => _NoticeCard(
+          message: 'Unable to load patients: $error',
+          actionLabel: 'Retry',
+          onAction: refreshDashboardData,
+        ),
+      );
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -29,6 +129,11 @@ class DashboardScreen extends ConsumerWidget {
               ),
             ),
           IconButton(
+            tooltip: 'Refresh',
+            onPressed: refreshDashboardData,
+            icon: const Icon(Icons.refresh_rounded),
+          ),
+          IconButton(
             tooltip: 'Sign out',
             onPressed: () => FirebaseAuth.instance.signOut(),
             icon: const Icon(Icons.logout_rounded),
@@ -41,11 +146,7 @@ class DashboardScreen extends ConsumerWidget {
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: countsAsync.when(
-                data: (counts) => _DashboardCountsRow(counts: counts),
-                loading: () => const _LoadingBlock(height: 70),
-                error: (error, _) => Text('Unable to load counts: $error'),
-              ),
+              child: buildCountsContent(),
             ),
           ),
           const SizedBox(height: 16),
@@ -54,38 +155,7 @@ class DashboardScreen extends ConsumerWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 8),
-          patientsAsync.when(
-            data: (patients) {
-              if (patients.isEmpty) {
-                return const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text('No patients available for your role.'),
-                  ),
-                );
-              }
-
-              return Card(
-                child: Column(
-                  children: patients
-                      .map((patient) => _PatientTile(patient: patient))
-                      .toList(),
-                ),
-              );
-            },
-            loading: () => const Card(
-              child: Padding(
-                padding: EdgeInsets.all(16),
-                child: _LoadingBlock(height: 90),
-              ),
-            ),
-            error: (error, _) => Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text('Unable to load patients: $error'),
-              ),
-            ),
-          ),
+          buildPatientsContent(),
         ],
       ),
     );
@@ -194,6 +264,43 @@ class _LoadingBlock extends StatelessWidget {
       height: height,
       child: const Center(
         child: CircularProgressIndicator(),
+      ),
+    );
+  }
+}
+
+class _NoticeCard extends StatelessWidget {
+  const _NoticeCard({
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final showAction = actionLabel != null && onAction != null;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(message),
+            if (showAction) ...<Widget>[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: onAction,
+                icon: const Icon(Icons.refresh_rounded),
+                label: Text(actionLabel!),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

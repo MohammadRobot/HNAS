@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -33,10 +34,17 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
-      );
+      await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text,
+          )
+          .timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      setState(() {
+        _errorMessage =
+            'Sign-in timed out. Ensure Firebase emulators are running and reachable.';
+      });
     } on FirebaseAuthException catch (error) {
       setState(() {
         _errorMessage = error.message ?? 'Unable to sign in.';
