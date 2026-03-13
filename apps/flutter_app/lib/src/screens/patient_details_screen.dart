@@ -548,7 +548,7 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: DropdownButtonFormField<String>(
-                        value: mealTag,
+                        initialValue: mealTag,
                         items: const <DropdownMenuItem<String>>[
                           DropdownMenuItem(value: 'none', child: Text('None')),
                           DropdownMenuItem(
@@ -921,7 +921,7 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
-          color: Theme.of(context).colorScheme.surfaceVariant,
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
           child: const Text(
             'AI disclaimer: operational support only, no diagnosis/prescription/dose changes.',
           ),
@@ -980,7 +980,7 @@ class _ChatBubble extends StatelessWidget {
     final isUser = message.fromUser;
     final background = isUser
         ? Theme.of(context).colorScheme.primaryContainer
-        : Theme.of(context).colorScheme.surfaceVariant;
+        : Theme.of(context).colorScheme.surfaceContainerHighest;
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
@@ -1090,7 +1090,7 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
@@ -1115,7 +1115,7 @@ class _StatChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Text('$label: $value'),

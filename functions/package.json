@@ -8,8 +8,9 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint --ext .ts src",
-    "serve": "npm run build && firebase emulators:start --config ../firebase.json",
-    "deploy": "npm run build && firebase deploy --config ../firebase.json --only functions"
+    "serve": "npm run build && JDK21=\"$HOME/.local/jdks/temurin-21.0.8\"; if [ -x \"$JDK21/bin/java\" ]; then export JAVA_HOME=\"$JDK21\"; export PATH=\"$JDK21/bin:$PATH\"; fi; npx --yes firebase-tools emulators:start --config ../firebase.json --project demo-hnas --only auth,firestore,functions",
+    "deploy": "npm run build && npx --yes firebase-tools deploy --config ../firebase.json --only functions",
+    "seed:demo": "node scripts/seed-demo.js"
   },
   "dependencies": {
     "express": "^4.21.1",
