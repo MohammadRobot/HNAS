@@ -5,6 +5,15 @@ import 'package:go_router/go_router.dart';
 import '../models.dart';
 import '../providers.dart';
 
+const List<String> _timezoneOptions = <String>[
+  'Etc/UTC',
+  'Asia/Dubai',
+  'Europe/London',
+  'America/New_York',
+  'America/Chicago',
+  'America/Los_Angeles',
+];
+
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
@@ -393,28 +402,27 @@ class _CreatePatientDialog extends StatefulWidget {
 class _CreatePatientDialogState extends State<_CreatePatientDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
-  late final TextEditingController _timezoneController;
   late final TextEditingController _dateOfBirthController;
   late final TextEditingController _agencyIdController;
   late final TextEditingController _assignedNursesController;
+  late String _timezone;
   bool _active = true;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
-    _timezoneController = TextEditingController(text: 'Etc/UTC');
     _dateOfBirthController = TextEditingController();
     _agencyIdController = TextEditingController(
       text: widget.initialAgencyId ?? '',
     );
     _assignedNursesController = TextEditingController();
+    _timezone = _timezoneOptions.first;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _timezoneController.dispose();
     _dateOfBirthController.dispose();
     _agencyIdController.dispose();
     _assignedNursesController.dispose();
@@ -447,28 +455,38 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
                   },
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _timezoneController,
-                  textInputAction: TextInputAction.next,
+                DropdownButtonFormField<String>(
+                  initialValue: _timezone,
                   decoration: const InputDecoration(
                     labelText: 'Timezone',
-                    hintText: 'Etc/UTC',
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Timezone is required.';
+                  items: _timezoneOptions
+                      .map(
+                        (timezone) => DropdownMenuItem<String>(
+                          value: timezone,
+                          child: Text(timezone),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
                     }
-                    return null;
+                    setState(() {
+                      _timezone = value;
+                    });
                   },
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _dateOfBirthController,
-                  textInputAction: TextInputAction.next,
+                  readOnly: true,
                   decoration: const InputDecoration(
                     labelText: 'Date of Birth (optional)',
                     hintText: 'YYYY-MM-DD',
+                    suffixIcon: Icon(Icons.calendar_today_outlined),
                   ),
+                  onTap: _selectDateOfBirth,
                   validator: (value) {
                     final raw = (value ?? '').trim();
                     if (raw.isEmpty) {
@@ -553,13 +571,33 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
     Navigator.of(context).pop(
       _CreatePatientInput(
         fullName: _nameController.text.trim(),
-        timezone: _timezoneController.text.trim(),
+        timezone: _timezone,
         active: _active,
         dateOfBirth: dateOfBirth.isEmpty ? null : dateOfBirth,
         agencyId: agencyId.isEmpty ? null : agencyId,
         assignedNurseIds: assignedNurseIds,
       ),
     );
+  }
+
+  Future<void> _selectDateOfBirth() async {
+    final initial = _dateOfBirthController.text.trim().isEmpty
+        ? DateTime.now()
+        : DateTime.tryParse('${_dateOfBirthController.text.trim()}T00:00:00') ??
+            DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(1900),
+      lastDate: DateTime.now(),
+      helpText: 'Select Date Of Birth',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    _dateOfBirthController.text = _formatDateId(picked);
   }
 
   bool _isValidDateId(String value) {
@@ -569,4 +607,11 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
     }
     return DateTime.tryParse('${value}T00:00:00Z') != null;
   }
+}
+
+String _formatDateId(DateTime date) {
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
 }

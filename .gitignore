@@ -13,10 +13,19 @@ functions/.firebase/
 # Firebase local state
 .firebase/
 firebase-debug.log
+functions/firestore-debug.log
+functions/*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+functions/.env
+functions/.env.local
+functions/.env.*.local
 
 # OS / Editor
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
-

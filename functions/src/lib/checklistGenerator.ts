@@ -51,7 +51,7 @@ function buildMedicineTasks(medicines: ChecklistSourceRecord[]): Task[] {
     const scheduleEntries = extractScheduleEntries(medicine);
 
     scheduleEntries.forEach((entry, index) => {
-      tasks.push({
+      tasks.push(compactUndefined({
         id: buildTaskId('medicine', medicine.id, entry.time, index),
         type: 'medicine',
         medicineId: medicine.id,
@@ -61,7 +61,7 @@ function buildMedicineTasks(medicines: ChecklistSourceRecord[]): Task[] {
         plannedDoseAmount: entry.doseAmount ?? defaultDoseAmount,
         plannedDoseUnit: entry.doseUnit ?? defaultDoseUnit,
         notes: instructions,
-      });
+      }) as unknown as Task);
     });
   }
   return tasks;
@@ -79,7 +79,7 @@ function buildProcedureTasks(procedures: ChecklistSourceRecord[]): Task[] {
     const scheduleEntries = extractScheduleEntries(procedure);
 
     scheduleEntries.forEach((entry, index) => {
-      tasks.push({
+      tasks.push(compactUndefined({
         id: buildTaskId('procedure', procedure.id, entry.time, index),
         type: 'procedure',
         procedureId: procedure.id,
@@ -87,7 +87,7 @@ function buildProcedureTasks(procedures: ChecklistSourceRecord[]): Task[] {
         required: true,
         scheduledTime: entry.time,
         notes: instructions,
-      });
+      }) as unknown as Task);
     });
   }
   return tasks;
@@ -104,7 +104,7 @@ function buildRapidInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
     const scheduleEntries = extractScheduleEntries(profile);
 
     scheduleEntries.forEach((entry, index) => {
-      tasks.push({
+      tasks.push(compactUndefined({
         id: buildTaskId('insulin_rapid', profile.id, entry.time, index),
         type: 'insulin_rapid',
         insulinProfileId: profile.id,
@@ -116,7 +116,7 @@ function buildRapidInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
             readString(profile.notes),
             'Requires glucose input before dosing.',
         ),
-      });
+      }) as unknown as Task);
     });
   }
   return tasks;
@@ -134,7 +134,7 @@ function buildBasalInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
 
     scheduleEntries.forEach((entry, index) => {
       const plannedUnits = entry.units ?? readNumber(profile.fixedUnits);
-      tasks.push({
+      tasks.push(compactUndefined({
         id: buildTaskId('insulin_basal', profile.id, entry.time, index),
         type: 'insulin_basal',
         insulinProfileId: profile.id,
@@ -143,7 +143,7 @@ function buildBasalInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
         scheduledTime: entry.time,
         plannedUnits,
         notes: readString(profile.notes) ?? 'Fixed basal dose.',
-      });
+      }) as unknown as Task);
     });
   }
   return tasks;
@@ -283,4 +283,14 @@ function mergeNotes(primary?: string, secondary?: string): string | undefined {
     return `${primaryValue} ${secondaryValue}`;
   }
   return primaryValue ?? secondaryValue;
+}
+
+function compactUndefined<T extends Record<string, unknown>>(record: T): T {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (value !== undefined) {
+      output[key] = value;
+    }
+  }
+  return output as T;
 }

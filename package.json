@@ -13,5 +13,8 @@
     "install:functions": "npm --prefix functions install",
     "build:flutter:web": "cd apps/flutter_app && flutter build web",
     "run:flutter:web": "cd apps/flutter_app && flutter run -d chrome"
+  },
+  "dependencies": {
+    "firebase-functions": "^4.9.0"
   }
 }

@@ -103,6 +103,7 @@ interface FilterResult {
 }
 
 interface ExternalModelConfig {
+  provider: 'generic' | 'openai';
   endpoint: string;
   apiKey?: string;
   modelName: string;
@@ -917,14 +918,20 @@ app.use((_req, res) => {
   });
 });
 
-app.use((error: unknown, _req: Request, res: Response, next: NextFunction) => {
+app.use((error: unknown, req: Request, res: Response, next: NextFunction) => {
   void next;
   const normalized = normalizeError(error);
   if (normalized.statusCode >= 500) {
+    const raw = describeUnknownError(error);
     logger.error('API request failed.', {
       code: normalized.code,
-      message: normalized.message,
-      stack: normalized.stack,
+      statusCode: normalized.statusCode,
+      responseMessage: normalized.message,
+      requestMethod: req.method,
+      requestPath: req.originalUrl || req.url,
+      rawErrorName: raw.name,
+      rawErrorMessage: raw.message,
+      rawErrorStack: raw.stack,
     });
   }
 
@@ -973,6 +980,25 @@ function normalizeError(error: unknown): HttpError {
   }
 
   return new HttpError(500, 'internal', 'Unexpected server error.');
+}
+
+function describeUnknownError(error: unknown): {
+  name: string;
+  message: string;
+  stack?: string;
+} {
+  if (error instanceof Error) {
+    return {
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return {
+    name: 'NonErrorThrow',
+    message: String(error),
+  };
 }
 
 function runAiPreFilter(question: string): FilterResult {
@@ -1435,24 +1461,69 @@ function isInsulinDoseQuestion(question: string): boolean {
 }
 
 function getExternalModelConfig(): ExternalModelConfig | null {
-  const endpoint = firstNonEmptyString(
+  const providerHint = firstNonEmptyString(
+      process.env.AI_MODEL_PROVIDER,
+      process.env.EXTERNAL_MODEL_PROVIDER,
+  )?.toLowerCase();
+
+  const configuredEndpoint = firstNonEmptyString(
       process.env.AI_MODEL_ENDPOINT,
       process.env.EXTERNAL_MODEL_ENDPOINT,
   );
-  if (!endpoint) {
+  const openAiApiKey = firstNonEmptyString(process.env.OPENAI_API_KEY);
+  const openAiEndpoint = firstNonEmptyString(
+      process.env.OPENAI_ENDPOINT,
+      process.env.OPENAI_API_ENDPOINT,
+  ) ?? 'https://api.openai.com/v1/chat/completions';
+  const openAiModelName = firstNonEmptyString(
+      process.env.OPENAI_MODEL,
+      process.env.OPENAI_MODEL_NAME,
+  );
+
+  if (providerHint === 'openai' || (openAiApiKey && !configuredEndpoint)) {
+    const apiKey = firstNonEmptyString(
+        process.env.AI_MODEL_API_KEY,
+        process.env.EXTERNAL_MODEL_API_KEY,
+        openAiApiKey,
+    );
+    const modelName = firstNonEmptyString(
+        process.env.AI_MODEL_NAME,
+        process.env.EXTERNAL_MODEL_NAME,
+        openAiModelName,
+    ) ?? 'gpt-4o-mini';
+
+    return {
+      provider: 'openai',
+      endpoint: configuredEndpoint ?? openAiEndpoint,
+      apiKey,
+      modelName,
+    };
+  }
+
+  if (!configuredEndpoint) {
     return null;
   }
+
+  const inferredProvider = providerHint === 'openai' ||
+    configuredEndpoint.includes('api.openai.com') ? 'openai' : 'generic';
 
   const apiKey = firstNonEmptyString(
       process.env.AI_MODEL_API_KEY,
       process.env.EXTERNAL_MODEL_API_KEY,
+      openAiApiKey,
   );
   const modelName = firstNonEmptyString(
       process.env.AI_MODEL_NAME,
       process.env.EXTERNAL_MODEL_NAME,
-  ) ?? 'external-model';
+      openAiModelName,
+  ) ?? (inferredProvider === 'openai' ? 'gpt-4o-mini' : 'external-model');
 
-  return {endpoint, apiKey, modelName};
+  return {
+    provider: inferredProvider,
+    endpoint: configuredEndpoint,
+    apiKey,
+    modelName,
+  };
 }
 
 interface TryExternalModelInput {
@@ -1465,6 +1536,10 @@ interface TryExternalModelInput {
 async function tryExternalModelAnswer(
     input: TryExternalModelInput,
 ): Promise<AiAskResponse | null> {
+  if (input.config.provider === 'openai') {
+    return tryOpenAiAnswer(input);
+  }
+
   const payload = {
     model: input.config.modelName,
     question: input.question,
@@ -1508,14 +1583,157 @@ async function tryExternalModelAnswer(
   }
 }
 
+async function tryOpenAiAnswer(
+    input: TryExternalModelInput,
+): Promise<AiAskResponse | null> {
+  if (!input.config.apiKey) {
+    logger.warn('OpenAI provider selected but API key is missing.');
+    return null;
+  }
+
+  const payload = {
+    model: input.config.modelName,
+    response_format: {
+      type: 'json_object',
+    },
+    messages: [
+      {
+        role: 'system',
+        content: [
+          'You are an operational assistant for home nursing workflows.',
+          'Never diagnose, prescribe, or suggest changing doses.',
+          'Return strict JSON only.',
+          'Schema: {answer_text,answer_type,bullets,disclaimer,references,safety_flags,next_actions}.',
+          'answer_type must be one of: general_guidance, insulin_explanation, insufficient_context, safety_blocked.',
+        ].join(' '),
+      },
+      {
+        role: 'user',
+        content: [
+          `Question: ${input.question}`,
+          `Context JSON: ${JSON.stringify(input.aiContext)}`,
+          'Return one JSON object and no markdown fences.',
+        ].join('\n\n'),
+      },
+    ],
+  };
+
+  try {
+    const response = await fetch(input.config.endpoint, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'authorization': `Bearer ${input.config.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      logger.warn('OpenAI model call failed with non-2xx status.', {
+        status: response.status,
+        body: responseText.slice(0, 400),
+      });
+      return null;
+    }
+
+    const parsed = parseOpenAiPayload(responseText);
+    return enforceStrictAiResponse(parsed, input.fallback);
+  } catch (error) {
+    logger.warn('OpenAI model call failed; falling back to template response.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+function parseOpenAiPayload(responseText: string): unknown {
+  const parsed = parseJsonSafe(responseText);
+  if (!isRecord(parsed)) {
+    return parseExternalModelPayload(responseText);
+  }
+
+  if (typeof parsed.output_text === 'string' && parsed.output_text.trim().length > 0) {
+    const asJson = parseJsonSafe(parsed.output_text);
+    return asJson ?? buildAnswerLikePayload(parsed.output_text);
+  }
+
+  const choices = parsed.choices;
+  if (Array.isArray(choices)) {
+    for (const choice of choices) {
+      if (!isRecord(choice) || !isRecord(choice.message)) {
+        continue;
+      }
+
+      const content = extractOpenAiMessageText(choice.message.content);
+      if (!content) {
+        continue;
+      }
+
+      const asJson = parseJsonSafe(content);
+      return asJson ?? buildAnswerLikePayload(content);
+    }
+  }
+
+  return unwrapModelPayload(parsed);
+}
+
+function extractOpenAiMessageText(content: unknown): string | null {
+  if (typeof content === 'string' && content.trim().length > 0) {
+    return content.trim();
+  }
+
+  if (!Array.isArray(content)) {
+    return null;
+  }
+
+  const chunks: string[] = [];
+  for (const part of content) {
+    if (!isRecord(part)) {
+      continue;
+    }
+
+    const direct = toTrimmedText(part.text) ?? toTrimmedText(part.content);
+    if (direct) {
+      chunks.push(direct);
+      continue;
+    }
+
+    if (isRecord(part.text)) {
+      const value = toTrimmedText(part.text.value);
+      if (value) {
+        chunks.push(value);
+      }
+    }
+  }
+
+  if (chunks.length === 0) {
+    return null;
+  }
+  return chunks.join('\n');
+}
+
+function toTrimmedText(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function parseExternalModelPayload(responseText: string): unknown {
   const direct = parseJsonSafe(responseText);
   if (direct !== null) {
     return unwrapModelPayload(direct);
   }
 
+  return buildAnswerLikePayload(responseText);
+}
+
+function buildAnswerLikePayload(answerText: string): UnknownRecord {
   return {
-    answer_text: responseText.trim(),
+    answer_text: answerText.trim(),
     answer_type: 'general_guidance',
     bullets: [],
     disclaimer: DEFAULT_AI_DISCLAIMER,

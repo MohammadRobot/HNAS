@@ -683,6 +683,21 @@ bool _canManageRecords(String? role) {
   return role == 'admin' || role == 'supervisor';
 }
 
+const List<String> _medicineDoseUnitOptions = <String>[
+  'mg',
+  'ml',
+  'tablet',
+  'capsule',
+  'units',
+];
+
+const List<String> _procedureFrequencyOptions = <String>[
+  'once',
+  'daily',
+  'weekly',
+  'as_needed',
+];
+
 class _TabActionHeader extends StatelessWidget {
   const _TabActionHeader({
     required this.label,
@@ -756,8 +771,8 @@ class _MedicineDialogState extends State<_MedicineDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _instructionsController;
   late final TextEditingController _doseAmountController;
-  late final TextEditingController _doseUnitController;
-  late final TextEditingController _scheduleController;
+  late String? _doseUnit;
+  late final List<String> _scheduleTimes;
   late bool _active;
 
   @override
@@ -771,10 +786,9 @@ class _MedicineDialogState extends State<_MedicineDialog> {
     _doseAmountController = TextEditingController(
       text: initial?.doseAmount?.toString() ?? '',
     );
-    _doseUnitController = TextEditingController(text: initial?.doseUnit ?? '');
-    _scheduleController = TextEditingController(
-      text: initial?.scheduleTimes.join(', ') ?? '',
-    );
+    _doseUnit = initial?.doseUnit;
+    _scheduleTimes = List<String>.from(initial?.scheduleTimes ?? <String>[])
+      ..sort();
     _active = initial?.active ?? true;
   }
 
@@ -783,8 +797,6 @@ class _MedicineDialogState extends State<_MedicineDialog> {
     _nameController.dispose();
     _instructionsController.dispose();
     _doseAmountController.dispose();
-    _doseUnitController.dispose();
-    _scheduleController.dispose();
     super.dispose();
   }
 
@@ -833,29 +845,27 @@ class _MedicineDialogState extends State<_MedicineDialog> {
                   },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _doseUnitController,
-                  textInputAction: TextInputAction.next,
+                DropdownButtonFormField<String?>(
+                  initialValue: _doseUnit,
                   decoration: const InputDecoration(
                     labelText: 'Dose Unit (optional)',
-                    hintText: 'mg, ml, tablet',
                   ),
+                  items: _buildDoseUnitItems(),
+                  onChanged: (value) {
+                    setState(() {
+                      _doseUnit = value;
+                    });
+                  },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _scheduleController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Schedule Times (optional)',
-                    hintText: '08:00, 14:30',
-                  ),
-                  validator: (value) {
-                    try {
-                      _parseTimeCsv(value ?? '');
-                      return null;
-                    } catch (_) {
-                      return 'Use comma-separated HH:mm times.';
-                    }
+                _ScheduleTimeEditor(
+                  label: 'Schedule Times (optional)',
+                  times: _scheduleTimes,
+                  onAddTime: _pickAndAddScheduleTime,
+                  onRemoveTime: (time) {
+                    setState(() {
+                      _scheduleTimes.remove(time);
+                    });
                   },
                 ),
                 const SizedBox(height: 10),
@@ -903,7 +913,6 @@ class _MedicineDialogState extends State<_MedicineDialog> {
     }
 
     final instructions = _instructionsController.text.trim();
-    final doseUnit = _doseUnitController.text.trim();
     final doseRaw = _doseAmountController.text.trim();
 
     Navigator.of(context).pop(
@@ -911,11 +920,46 @@ class _MedicineDialogState extends State<_MedicineDialog> {
         name: _nameController.text.trim(),
         instructions: instructions.isEmpty ? null : instructions,
         doseAmount: doseRaw.isEmpty ? null : num.tryParse(doseRaw),
-        doseUnit: doseUnit.isEmpty ? null : doseUnit,
+        doseUnit: _doseUnit,
         active: _active,
-        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+        scheduleTimes: _scheduleTimes.toList()..sort(),
       ),
     );
+  }
+
+  List<DropdownMenuItem<String?>> _buildDoseUnitItems() {
+    final options = <String>{..._medicineDoseUnitOptions};
+    if (_doseUnit != null && _doseUnit!.trim().isNotEmpty) {
+      options.add(_doseUnit!.trim());
+    }
+
+    final sortedOptions = options.toList()..sort();
+    return <DropdownMenuItem<String?>>[
+      const DropdownMenuItem<String?>(
+        value: null,
+        child: Text('Not set'),
+      ),
+      ...sortedOptions.map(
+        (unit) => DropdownMenuItem<String?>(
+          value: unit,
+          child: Text(unit),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _pickAndAddScheduleTime() async {
+    final pickedTime = await _pickScheduleTime(context);
+    if (pickedTime == null) {
+      return;
+    }
+
+    setState(() {
+      final deduped = <String>{..._scheduleTimes, pickedTime}.toList()..sort();
+      _scheduleTimes
+        ..clear()
+        ..addAll(deduped);
+    });
   }
 }
 
@@ -950,8 +994,8 @@ class _ProcedureDialogState extends State<_ProcedureDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _instructionsController;
-  late final TextEditingController _frequencyController;
-  late final TextEditingController _scheduleController;
+  late String? _frequency;
+  late final List<String> _scheduleTimes;
   late bool _active;
 
   @override
@@ -962,11 +1006,9 @@ class _ProcedureDialogState extends State<_ProcedureDialog> {
     _instructionsController = TextEditingController(
       text: initial?.instructions ?? '',
     );
-    _frequencyController =
-        TextEditingController(text: initial?.frequency ?? '');
-    _scheduleController = TextEditingController(
-      text: initial?.scheduleTimes.join(', ') ?? '',
-    );
+    _frequency = initial?.frequency;
+    _scheduleTimes = List<String>.from(initial?.scheduleTimes ?? <String>[])
+      ..sort();
     _active = initial?.active ?? true;
   }
 
@@ -974,8 +1016,6 @@ class _ProcedureDialogState extends State<_ProcedureDialog> {
   void dispose() {
     _nameController.dispose();
     _instructionsController.dispose();
-    _frequencyController.dispose();
-    _scheduleController.dispose();
     super.dispose();
   }
 
@@ -1004,29 +1044,27 @@ class _ProcedureDialogState extends State<_ProcedureDialog> {
                   },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _frequencyController,
-                  textInputAction: TextInputAction.next,
+                DropdownButtonFormField<String?>(
+                  initialValue: _frequency,
                   decoration: const InputDecoration(
                     labelText: 'Frequency (optional)',
-                    hintText: 'daily, weekly',
                   ),
+                  items: _buildFrequencyItems(),
+                  onChanged: (value) {
+                    setState(() {
+                      _frequency = value;
+                    });
+                  },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _scheduleController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Schedule Times (optional)',
-                    hintText: '09:00, 18:00',
-                  ),
-                  validator: (value) {
-                    try {
-                      _parseTimeCsv(value ?? '');
-                      return null;
-                    } catch (_) {
-                      return 'Use comma-separated HH:mm times.';
-                    }
+                _ScheduleTimeEditor(
+                  label: 'Schedule Times (optional)',
+                  times: _scheduleTimes,
+                  onAddTime: _pickAndAddScheduleTime,
+                  onRemoveTime: (time) {
+                    setState(() {
+                      _scheduleTimes.remove(time);
+                    });
                   },
                 ),
                 const SizedBox(height: 10),
@@ -1074,16 +1112,50 @@ class _ProcedureDialogState extends State<_ProcedureDialog> {
     }
 
     final instructions = _instructionsController.text.trim();
-    final frequency = _frequencyController.text.trim();
     Navigator.of(context).pop(
       _ProcedureDraft(
         name: _nameController.text.trim(),
         instructions: instructions.isEmpty ? null : instructions,
-        frequency: frequency.isEmpty ? null : frequency,
+        frequency: _frequency,
         active: _active,
-        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+        scheduleTimes: _scheduleTimes.toList()..sort(),
       ),
     );
+  }
+
+  List<DropdownMenuItem<String?>> _buildFrequencyItems() {
+    final options = <String>{..._procedureFrequencyOptions};
+    if (_frequency != null && _frequency!.trim().isNotEmpty) {
+      options.add(_frequency!.trim());
+    }
+
+    final sortedOptions = options.toList()..sort();
+    return <DropdownMenuItem<String?>>[
+      const DropdownMenuItem<String?>(
+        value: null,
+        child: Text('Not set'),
+      ),
+      ...sortedOptions.map(
+        (value) => DropdownMenuItem<String?>(
+          value: value,
+          child: Text(value),
+        ),
+      ),
+    ];
+  }
+
+  Future<void> _pickAndAddScheduleTime() async {
+    final pickedTime = await _pickScheduleTime(context);
+    if (pickedTime == null) {
+      return;
+    }
+
+    setState(() {
+      final deduped = <String>{..._scheduleTimes, pickedTime}.toList()..sort();
+      _scheduleTimes
+        ..clear()
+        ..addAll(deduped);
+    });
   }
 }
 
@@ -1136,12 +1208,12 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _labelController;
   late final TextEditingController _insulinNameController;
-  late final TextEditingController _scheduleController;
   late final TextEditingController _notesController;
   late final TextEditingController _slidingScaleController;
   late final TextEditingController _defaultBaseController;
   late final TextEditingController _fixedUnitsController;
   late final Map<String, TextEditingController> _mealBaseControllers;
+  late final List<String> _scheduleTimes;
   late String _type;
   late bool _active;
 
@@ -1156,9 +1228,8 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
     _insulinNameController = TextEditingController(
       text: initial?.insulinName ?? '',
     );
-    _scheduleController = TextEditingController(
-      text: initial?.scheduleTimes.join(', ') ?? '',
-    );
+    _scheduleTimes = List<String>.from(initial?.scheduleTimes ?? <String>[])
+      ..sort();
     _notesController = TextEditingController(text: initial?.notes ?? '');
     _slidingScaleController = TextEditingController(
       text: initial?.slidingScaleMgdl.join(', ') ?? '',
@@ -1181,7 +1252,6 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
   void dispose() {
     _labelController.dispose();
     _insulinNameController.dispose();
-    _scheduleController.dispose();
     _notesController.dispose();
     _slidingScaleController.dispose();
     _defaultBaseController.dispose();
@@ -1242,20 +1312,14 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _scheduleController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Schedule Times',
-                    hintText: '08:00, 12:00, 18:00',
-                  ),
-                  validator: (value) {
-                    try {
-                      _parseTimeCsv(value ?? '');
-                      return null;
-                    } catch (_) {
-                      return 'Use comma-separated HH:mm times.';
-                    }
+                _ScheduleTimeEditor(
+                  label: 'Schedule Times',
+                  times: _scheduleTimes,
+                  onAddTime: _pickAndAddScheduleTime,
+                  onRemoveTime: (time) {
+                    setState(() {
+                      _scheduleTimes.remove(time);
+                    });
                   },
                 ),
                 const SizedBox(height: 10),
@@ -1392,7 +1456,7 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
         label: _labelController.text.trim(),
         insulinName: insulinName.isEmpty ? null : insulinName,
         active: _active,
-        scheduleTimes: _parseTimeCsv(_scheduleController.text),
+        scheduleTimes: _scheduleTimes.toList()..sort(),
         slidingScaleMgdl: _type == 'rapid'
             ? _parseNumberCsv(_slidingScaleController.text)
             : const <num>[],
@@ -1407,40 +1471,103 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
       ),
     );
   }
+
+  Future<void> _pickAndAddScheduleTime() async {
+    final pickedTime = await _pickScheduleTime(context);
+    if (pickedTime == null) {
+      return;
+    }
+
+    setState(() {
+      final deduped = <String>{..._scheduleTimes, pickedTime}.toList()..sort();
+      _scheduleTimes
+        ..clear()
+        ..addAll(deduped);
+    });
+  }
 }
 
-List<String> _parseTimeCsv(String input) {
-  final result = <String>{};
-  for (final part in input.split(',')) {
-    final value = part.trim();
-    if (value.isEmpty) {
-      continue;
-    }
-    final normalized = _normalizeTimeValue(value);
-    if (normalized == null) {
-      throw const FormatException('Invalid time format');
-    }
-    result.add(normalized);
+Future<String?> _pickScheduleTime(BuildContext context) async {
+  final picked = await showTimePicker(
+    context: context,
+    initialTime: TimeOfDay.now(),
+    helpText: 'Select Time',
+  );
+  if (picked == null) {
+    return null;
   }
-  final list = result.toList();
-  list.sort();
-  return list;
+  return _formatTimeOfDay(picked);
 }
 
-String? _normalizeTimeValue(String raw) {
-  final match = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch(raw.trim());
-  if (match == null) {
-    return null;
+String _formatTimeOfDay(TimeOfDay value) {
+  final hour = value.hour.toString().padLeft(2, '0');
+  final minute = value.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
+String _formatDateId(DateTime date) {
+  final year = date.year.toString().padLeft(4, '0');
+  final month = date.month.toString().padLeft(2, '0');
+  final day = date.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+class _ScheduleTimeEditor extends StatelessWidget {
+  const _ScheduleTimeEditor({
+    required this.label,
+    required this.times,
+    required this.onAddTime,
+    required this.onRemoveTime,
+  });
+
+  final String label;
+  final List<String> times;
+  final VoidCallback onAddTime;
+  final ValueChanged<String> onRemoveTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTimes = times.isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ),
+            TextButton.icon(
+              onPressed: onAddTime,
+              icon: const Icon(Icons.schedule_outlined),
+              label: const Text('Add Time'),
+            ),
+          ],
+        ),
+        if (!hasTimes)
+          Text(
+            'No times selected',
+            style: Theme.of(context).textTheme.bodySmall,
+          )
+        else
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: times
+                .map(
+                  (time) => InputChip(
+                    label: Text(time),
+                    onDeleted: () => onRemoveTime(time),
+                  ),
+                )
+                .toList(),
+          ),
+      ],
+    );
   }
-  final hour = int.tryParse(match.group(1)!);
-  final minute = int.tryParse(match.group(2)!);
-  if (hour == null || minute == null) {
-    return null;
-  }
-  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return null;
-  }
-  return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 }
 
 List<num> _parseNumberCsv(String input) {
@@ -1474,6 +1601,7 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
   final Map<String, String> _mealTags = <String, String>{};
   String? _busyTaskId;
   bool _isGeneratingChecklist = false;
+  String? _selectedDateId;
 
   @override
   void dispose() {
@@ -1592,16 +1720,26 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
   }
 
   Widget _checklistActionCard({required String dateId}) {
+    final parsed = DateTime.tryParse('${dateId}T00:00:00');
+    final dateLabel =
+        parsed == null ? dateId : DateFormat('EEE, MMM d, yyyy').format(parsed);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(
+        child: Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          runSpacing: 8,
+          spacing: 8,
           children: <Widget>[
-            Expanded(
-              child: Text(
-                'Need to rebuild today\'s checklist?',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+            Text(
+              'Checklist date: $dateLabel',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _selectChecklistDate(fallbackDateId: dateId),
+              icon: const Icon(Icons.event_outlined),
+              label: const Text('Change Date'),
             ),
             FilledButton.icon(
               onPressed: _isGeneratingChecklist
@@ -1622,9 +1760,32 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
     );
   }
 
+  Future<void> _selectChecklistDate({required String fallbackDateId}) async {
+    final initial = DateTime.tryParse(
+          '${(_selectedDateId ?? fallbackDateId)}T00:00:00',
+        ) ??
+        DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select Checklist Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedDateId = _formatDateId(picked);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dateId = ref.watch(todayDateIdProvider);
+    final todayDateId = ref.watch(todayDateIdProvider);
+    final dateId = _selectedDateId ?? todayDateId;
     final canGenerateChecklist = ref.watch(userProfileProvider).value != null;
     final checklistAsync = ref.watch(
       checklistProvider(
@@ -1637,9 +1798,13 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
     return checklistAsync.when(
       data: (checklist) {
         if (checklist == null || checklist.tasks.isEmpty) {
+          final selectedDate = DateTime.tryParse('${dateId}T00:00:00');
+          final selectedDateLabel = selectedDate == null
+              ? dateId
+              : DateFormat('EEE, MMM d, yyyy').format(selectedDate);
           if (!canGenerateChecklist) {
-            return const Center(
-              child: Text('No checklist generated for today yet.'),
+            return Center(
+              child: Text('No checklist generated for $selectedDateLabel yet.'),
             );
           }
 
@@ -1648,10 +1813,11 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
             children: <Widget>[
               _checklistActionCard(dateId: dateId),
               const SizedBox(height: 12),
-              const Card(
+              Card(
                 child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No checklist generated for today yet.'),
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                      'No checklist generated for $selectedDateLabel yet.'),
                 ),
               ),
             ],
@@ -1882,15 +2048,23 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
   }
 }
 
-class _ReportsTab extends ConsumerWidget {
+class _ReportsTab extends ConsumerStatefulWidget {
   const _ReportsTab({required this.patientId});
 
   final String patientId;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_ReportsTab> createState() => _ReportsTabState();
+}
+
+class _ReportsTabState extends ConsumerState<_ReportsTab> {
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  @override
+  Widget build(BuildContext context) {
     final todayDateId = ref.watch(todayDateIdProvider);
-    final reportsAsync = ref.watch(reportsProvider(patientId));
+    final reportsAsync = ref.watch(reportsProvider(widget.patientId));
     return reportsAsync.when(
       data: (reports) {
         if (reports.isEmpty) {
@@ -1899,21 +2073,47 @@ class _ReportsTab extends ConsumerWidget {
 
         final sorted = reports.toList()
           ..sort((left, right) => right.dateId.compareTo(left.dateId));
-        final today = sorted.firstWhere(
+        final filtered = sorted.where(_isWithinRange).toList();
+        if (filtered.isEmpty) {
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              _buildDateRangeCard(
+                context,
+                filteredCount: 0,
+              ),
+              const SizedBox(height: 12),
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No reports found in the selected date range.'),
+                ),
+              ),
+            ],
+          );
+        }
+
+        final today = filtered.firstWhere(
           (report) => report.dateId == todayDateId,
-          orElse: () => sorted.first,
+          orElse: () => filtered.first,
         );
 
-        final currentWeek = _ReportTotals.fromReports(sorted.take(7).toList());
+        final currentWeek =
+            _ReportTotals.fromReports(filtered.take(7).toList());
         final previousWeek = _ReportTotals.fromReports(
-          sorted.length > 7
-              ? sorted.skip(7).take(7).toList()
+          filtered.length > 7
+              ? filtered.skip(7).take(7).toList()
               : <DailyReportModel>[],
         );
 
         return ListView(
           padding: const EdgeInsets.all(16),
           children: <Widget>[
+            _buildDateRangeCard(
+              context,
+              filteredCount: filtered.length,
+            ),
+            const SizedBox(height: 12),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1972,11 +2172,11 @@ class _ReportsTab extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      'Recent Daily Reports',
+                      'Recent Daily Reports (Filtered)',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 8),
-                    ...sorted.take(7).map((report) {
+                    ...filtered.take(7).map((report) {
                       final dateLabel = _formatDate(report.dateId);
                       final total = max(
                           1,
@@ -2012,6 +2212,130 @@ class _ReportsTab extends ConsumerWidget {
     );
   }
 
+  Widget _buildDateRangeCard(
+    BuildContext context, {
+    required int filteredCount,
+  }) {
+    final startLabel = _startDate == null
+        ? 'Start Date'
+        : DateFormat('yyyy-MM-dd').format(_startDate!);
+    final endLabel = _endDate == null
+        ? 'End Date'
+        : DateFormat('yyyy-MM-dd').format(_endDate!);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Text(
+              'Report Date Range',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                OutlinedButton.icon(
+                  onPressed: _pickStartDate,
+                  icon: const Icon(Icons.date_range_outlined),
+                  label: Text(startLabel),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _pickEndDate,
+                  icon: const Icon(Icons.event_available_outlined),
+                  label: Text(endLabel),
+                ),
+                if (_startDate != null || _endDate != null)
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _startDate = null;
+                        _endDate = null;
+                      });
+                    },
+                    child: const Text('Clear'),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Reports in range: $filteredCount'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  bool _isWithinRange(DailyReportModel report) {
+    final reportDate = _parseDateId(report.dateId);
+    if (reportDate == null) {
+      return true;
+    }
+
+    final start = _startDate == null
+        ? null
+        : DateTime.utc(_startDate!.year, _startDate!.month, _startDate!.day);
+    final end = _endDate == null
+        ? null
+        : DateTime.utc(_endDate!.year, _endDate!.month, _endDate!.day);
+
+    if (start != null && reportDate.isBefore(start)) {
+      return false;
+    }
+    if (end != null && reportDate.isAfter(end)) {
+      return false;
+    }
+    return true;
+  }
+
+  DateTime? _parseDateId(String dateId) {
+    return DateTime.tryParse('${dateId}T00:00:00Z');
+  }
+
+  Future<void> _pickStartDate() async {
+    final initial = _startDate ?? _endDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select Start Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _startDate = picked;
+      if (_endDate != null && picked.isAfter(_endDate!)) {
+        _endDate = picked;
+      }
+    });
+  }
+
+  Future<void> _pickEndDate() async {
+    final initial = _endDate ?? _startDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select End Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _endDate = picked;
+      if (_startDate != null && picked.isBefore(_startDate!)) {
+        _startDate = picked;
+      }
+    });
+  }
+
   String _formatDate(String dateId) {
     final parsed = DateTime.tryParse('${dateId}T00:00:00Z');
     if (parsed == null) {
@@ -2042,6 +2366,7 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
     ),
   ];
   bool _loading = false;
+  String? _selectedDateId;
 
   @override
   void dispose() {
@@ -2056,7 +2381,7 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
       return;
     }
 
-    final dateId = ref.read(todayDateIdProvider);
+    final dateId = _selectedDateId ?? ref.read(todayDateIdProvider);
     _questionController.clear();
 
     setState(() {
@@ -2139,16 +2464,74 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
     });
   }
 
+  Future<void> _selectContextDate({required String fallbackDateId}) async {
+    final initial = DateTime.tryParse(
+          '${(_selectedDateId ?? fallbackDateId)}T00:00:00',
+        ) ??
+        DateTime.now();
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select AI Context Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _selectedDateId = _formatDateId(picked);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final todayDateId = ref.watch(todayDateIdProvider);
+    final contextDateId = _selectedDateId ?? todayDateId;
+    final parsedContextDate = DateTime.tryParse('${contextDateId}T00:00:00');
+    final contextDateLabel = parsedContextDate == null
+        ? contextDateId
+        : DateFormat('EEE, MMM d, yyyy').format(parsedContextDate);
+
     return Column(
       children: <Widget>[
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: const Text(
-            'AI disclaimer: operational support only, no diagnosis/prescription/dose changes.',
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: <Widget>[
+                  Text('Context date: $contextDateLabel'),
+                  OutlinedButton.icon(
+                    onPressed: () =>
+                        _selectContextDate(fallbackDateId: contextDateId),
+                    icon: const Icon(Icons.event_outlined),
+                    label: const Text('Change Date'),
+                  ),
+                  if (_selectedDateId != null)
+                    TextButton(
+                      onPressed: () {
+                        setState(() {
+                          _selectedDateId = null;
+                        });
+                      },
+                      child: const Text('Use Today'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'AI disclaimer: operational support only, no diagnosis/prescription/dose changes.',
+              ),
+            ],
           ),
         ),
         Expanded(

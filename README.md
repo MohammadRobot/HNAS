@@ -273,6 +273,29 @@ flutter build web
 
 Firebase Hosting is configured to serve the Flutter web build output from `apps/flutter_app/build/web`.
 
+### Environment File Setup
+
+The repository includes:
+
+- `.env.example` as a template
+- `.env` for local values (git-ignored)
+
+Create/update your local env file:
+
+```bash
+cd ~/HNAS
+cp -n .env.example .env
+```
+
+Load env values into your current shell before running emulators or Flutter:
+
+```bash
+cd ~/HNAS
+set -a
+source .env
+set +a
+```
+
 ### Known-Good Local Run (Verified March 13, 2026)
 
 The sequence below was validated end-to-end on this repository.
@@ -299,6 +322,20 @@ cd ~/HNAS/apps/flutter_app
   --dart-define=HNAS_FIREBASE_PROJECT_ID=demo-hnas \
   --dart-define=HNAS_API_BASE_URL=http://127.0.0.1:5001/demo-hnas/us-central1/api
 ```
+
+Optional: enable ChatGPT-backed responses in the AI tab (Terminal A before
+`npm run serve:functions`):
+
+```bash
+export AI_MODEL_PROVIDER=openai
+export OPENAI_API_KEY=<your-openai-api-key>
+export OPENAI_MODEL=gpt-4o-mini
+# optional override, default is chat completions endpoint:
+# export OPENAI_ENDPOINT=https://api.openai.com/v1/chat/completions
+```
+
+If OpenAI config is not set, the backend uses template/deterministic fallback
+responses.
 
 Demo login credentials:
 
