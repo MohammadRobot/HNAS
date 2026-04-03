@@ -109,6 +109,27 @@ export interface HealthCheck {
   updatedAt: IsoDateTimeString;
 }
 
+export interface LabTest {
+  id: EntityId;
+  patientId: EntityId;
+  testName: string;
+  panel?: string;
+  scheduleDate?: DateId;
+  scheduleTime?: string;
+  status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+  priority?: string;
+  orderedBy?: string;
+  notes?: string;
+  resultValue?: string;
+  resultUnit?: string;
+  referenceRange?: string;
+  interpretation?: string;
+  resultFlag?: 'normal' | 'low' | 'high' | 'critical' | 'abnormal';
+  resultAt?: IsoDateTimeString;
+  createdAt: IsoDateTimeString;
+  updatedAt: IsoDateTimeString;
+}
+
 interface TaskBase {
   id: EntityId;
   title: string;

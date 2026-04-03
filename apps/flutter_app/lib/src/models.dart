@@ -140,6 +140,71 @@ class ProcedureModel {
   }
 }
 
+class LabTestModel {
+  const LabTestModel({
+    required this.id,
+    required this.testName,
+    required this.status,
+    this.panel,
+    this.scheduleDate,
+    this.scheduleTime,
+    this.priority,
+    this.orderedBy,
+    this.notes,
+    this.resultValue,
+    this.resultUnit,
+    this.referenceRange,
+    this.interpretation,
+    this.resultFlag,
+    this.resultAt,
+  });
+
+  final String id;
+  final String testName;
+  final String status;
+  final String? panel;
+  final String? scheduleDate;
+  final String? scheduleTime;
+  final String? priority;
+  final String? orderedBy;
+  final String? notes;
+  final String? resultValue;
+  final String? resultUnit;
+  final String? referenceRange;
+  final String? interpretation;
+  final String? resultFlag;
+  final String? resultAt;
+
+  bool get hasResult {
+    return resultValue != null ||
+        interpretation != null ||
+        resultFlag != null ||
+        resultAt != null;
+  }
+
+  factory LabTestModel.fromMap(String id, Map<String, dynamic> map) {
+    return LabTestModel(
+      id: id,
+      testName: _readString(map['testName']) ??
+          _readString(map['name']) ??
+          'Lab Test',
+      status: _readString(map['status']) ?? 'scheduled',
+      panel: _readString(map['panel']),
+      scheduleDate: _readString(map['scheduleDate']),
+      scheduleTime: _readString(map['scheduleTime']),
+      priority: _readString(map['priority']),
+      orderedBy: _readString(map['orderedBy']),
+      notes: _readString(map['notes']),
+      resultValue: _readStringOrNum(map['resultValue']),
+      resultUnit: _readString(map['resultUnit']),
+      referenceRange: _readString(map['referenceRange']),
+      interpretation: _readString(map['interpretation']),
+      resultFlag: _readString(map['resultFlag']),
+      resultAt: _readString(map['resultAt']),
+    );
+  }
+}
+
 class InsulinProfileModel {
   const InsulinProfileModel({
     required this.id,
@@ -471,6 +536,16 @@ class ChatMessageModel {
 String? _readString(Object? value) {
   if (value is String && value.trim().isNotEmpty) {
     return value.trim();
+  }
+  return null;
+}
+
+String? _readStringOrNum(Object? value) {
+  if (value is String && value.trim().isNotEmpty) {
+    return value.trim();
+  }
+  if (value is num) {
+    return value.toString();
   }
   return null;
 }

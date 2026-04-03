@@ -165,6 +165,38 @@ final proceduresProvider =
   );
 });
 
+final labTestsProvider =
+    StreamProvider.family<List<LabTestModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('labTests')
+        .snapshots()
+        .map((snapshot) {
+      final list = snapshot.docs
+          .map((doc) => LabTestModel.fromMap(doc.id, doc.data()))
+          .toList();
+
+      list.sort((left, right) {
+        final leftKey =
+            '${left.scheduleDate ?? '0000-00-00'} ${left.scheduleTime ?? '00:00'}';
+        final rightKey =
+            '${right.scheduleDate ?? '0000-00-00'} ${right.scheduleTime ?? '00:00'}';
+        final byDate = rightKey.compareTo(leftKey);
+        if (byDate != 0) {
+          return byDate;
+        }
+        return left.testName.compareTo(right.testName);
+      });
+
+      return list;
+    }),
+    'lab tests',
+  );
+});
+
 final insulinProfilesProvider =
     StreamProvider.family<List<InsulinProfileModel>, String>((ref, patientId) {
   final firestore = ref.watch(firestoreProvider);

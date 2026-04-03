@@ -64,6 +64,23 @@ class ApiClient {
     });
   }
 
+  Future<Map<String, dynamic>> generatePatientReports({
+    required String patientId,
+    String? startDate,
+    String? endDate,
+    int maxDays = 90,
+  }) async {
+    final boundedMaxDays = maxDays.clamp(1, 365);
+    return _post('/api/reports/generate', <String, dynamic>{
+      'patientId': patientId.trim(),
+      if (startDate != null && startDate.trim().isNotEmpty)
+        'startDate': startDate.trim(),
+      if (endDate != null && endDate.trim().isNotEmpty)
+        'endDate': endDate.trim(),
+      'maxDays': boundedMaxDays,
+    });
+  }
+
   Future<String> createPatient({
     required String fullName,
     String? timezone,
@@ -205,6 +222,97 @@ class ApiClient {
       );
     }
     return healthCheckId;
+  }
+
+  Future<String> createLabTest({
+    required String patientId,
+    required String testName,
+    String? panel,
+    String? scheduleDate,
+    String? scheduleTime,
+    String status = 'scheduled',
+    String? priority,
+    String? orderedBy,
+    String? notes,
+  }) async {
+    final response = await _post('/api/labTests/create', <String, dynamic>{
+      'patientId': patientId.trim(),
+      'testName': testName.trim(),
+      if (panel != null && panel.trim().isNotEmpty) 'panel': panel.trim(),
+      if (scheduleDate != null && scheduleDate.trim().isNotEmpty)
+        'scheduleDate': scheduleDate.trim(),
+      if (scheduleTime != null && scheduleTime.trim().isNotEmpty)
+        'scheduleTime': scheduleTime.trim(),
+      'status': status.trim().toLowerCase(),
+      if (priority != null && priority.trim().isNotEmpty)
+        'priority': priority.trim(),
+      if (orderedBy != null && orderedBy.trim().isNotEmpty)
+        'orderedBy': orderedBy.trim(),
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    });
+
+    final labTestId = response['labTestId'];
+    if (labTestId is! String || labTestId.isEmpty) {
+      throw ApiException(
+        code: 'invalid-response',
+        message: 'API response is missing labTestId.',
+      );
+    }
+    return labTestId;
+  }
+
+  Future<void> updateLabTest({
+    required String patientId,
+    required String labTestId,
+    String? testName,
+    String? panel,
+    String? scheduleDate,
+    String? scheduleTime,
+    String? status,
+    String? priority,
+    String? orderedBy,
+    String? notes,
+  }) async {
+    final body = <String, dynamic>{
+      'patientId': patientId.trim(),
+      'labTestId': labTestId.trim(),
+      if (testName != null) 'testName': testName.trim(),
+      if (panel != null) 'panel': panel.trim(),
+      if (scheduleDate != null) 'scheduleDate': scheduleDate.trim(),
+      if (scheduleTime != null) 'scheduleTime': scheduleTime.trim(),
+      if (status != null) 'status': status.trim().toLowerCase(),
+      if (priority != null) 'priority': priority.trim(),
+      if (orderedBy != null) 'orderedBy': orderedBy.trim(),
+      if (notes != null) 'notes': notes.trim(),
+    };
+    await _post('/api/labTests/update', body);
+  }
+
+  Future<void> recordLabTestResult({
+    required String patientId,
+    required String labTestId,
+    required String resultValue,
+    String? resultUnit,
+    String? referenceRange,
+    String? interpretation,
+    String? resultFlag,
+    DateTime? resultAt,
+  }) async {
+    final body = <String, dynamic>{
+      'patientId': patientId.trim(),
+      'labTestId': labTestId.trim(),
+      'resultValue': resultValue.trim(),
+      if (resultUnit != null && resultUnit.trim().isNotEmpty)
+        'resultUnit': resultUnit.trim(),
+      if (referenceRange != null && referenceRange.trim().isNotEmpty)
+        'referenceRange': referenceRange.trim(),
+      if (interpretation != null && interpretation.trim().isNotEmpty)
+        'interpretation': interpretation.trim(),
+      if (resultFlag != null && resultFlag.trim().isNotEmpty)
+        'resultFlag': resultFlag.trim().toLowerCase(),
+      if (resultAt != null) 'resultAt': resultAt.toUtc().toIso8601String(),
+    };
+    await _post('/api/labTests/result', body);
   }
 
   Future<String> createMedicine({

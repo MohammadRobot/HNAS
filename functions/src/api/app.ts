@@ -152,6 +152,26 @@ const ALLOWED_PATIENT_GENDERS = new Set<string>([
   'prefer_not_to_say',
 ]);
 
+const ALLOWED_LAB_TEST_STATUSES = new Set<string>([
+  'scheduled',
+  'in_progress',
+  'completed',
+  'cancelled',
+  'canceled',
+]);
+
+const ALLOWED_LAB_RESULT_FLAGS = new Set<string>([
+  'normal',
+  'low',
+  'high',
+  'critical',
+  'abnormal',
+]);
+
+const REPORTS_COLLECTION = 'reports';
+const REPORTS_DAILY_DOC_ID = 'daily';
+const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
+
 const app = express();
 
 app.use(express.json({limit: '1mb'}));
@@ -780,6 +800,191 @@ app.post('/api/insulinProfiles/update', asyncRoute(async (req, res) => {
   });
 }));
 
+app.post('/api/labTests/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const testName = readRequiredString(body, 'testName');
+  const panel = readOptionalString(body, 'panel');
+  const scheduleDate = readOptionalString(body, 'scheduleDate');
+  if (scheduleDate) {
+    assertDateId(scheduleDate, 'scheduleDate');
+  }
+  const scheduleTimeRaw = readOptionalString(body, 'scheduleTime');
+  const scheduleTime = scheduleTimeRaw ?
+    normalizeClockTime(scheduleTimeRaw, 'scheduleTime') :
+    undefined;
+  const status = readAndValidateLabTestStatus(body, 'status', 'scheduled');
+  const priority = readOptionalString(body, 'priority');
+  const orderedBy = readOptionalString(body, 'orderedBy');
+  const notes = readOptionalString(body, 'notes');
+  const nowIso = new Date().toISOString();
+
+  const labTestRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('labTests')
+      .doc();
+  const payload: UnknownRecord = {
+    id: labTestRef.id,
+    patientId,
+    testName,
+    status,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (panel) {
+    payload.panel = panel;
+  }
+  if (scheduleDate) {
+    payload.scheduleDate = scheduleDate;
+  }
+  if (scheduleTime) {
+    payload.scheduleTime = scheduleTime;
+  }
+  if (priority) {
+    payload.priority = priority;
+  }
+  if (orderedBy) {
+    payload.orderedBy = orderedBy;
+  }
+  if (notes) {
+    payload.notes = notes;
+  }
+
+  await labTestRef.set(payload);
+
+  res.status(201).json({
+    ok: true,
+    labTestId: labTestRef.id,
+  });
+}));
+
+app.post('/api/labTests/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const labTestId = readRequiredString(body, 'labTestId');
+  await assertPatientAccess(context.user, patientId);
+
+  const labTestRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('labTests')
+      .doc(labTestId);
+  await assertDocumentExists(
+      labTestRef,
+      `Lab test "${labTestId}" for patient "${patientId}" was not found.`,
+  );
+
+  const patch: UnknownRecord = {};
+  if (hasOwn(body, 'testName')) {
+    patch.testName = readRequiredString(body, 'testName');
+  }
+  if (hasOwn(body, 'panel')) {
+    patch.panel = readRequiredString(body, 'panel');
+  }
+  if (hasOwn(body, 'scheduleDate')) {
+    const scheduleDate = readRequiredString(body, 'scheduleDate');
+    assertDateId(scheduleDate, 'scheduleDate');
+    patch.scheduleDate = scheduleDate;
+  }
+  if (hasOwn(body, 'scheduleTime')) {
+    const scheduleTime = normalizeClockTime(
+        readRequiredString(body, 'scheduleTime'),
+        'scheduleTime',
+    );
+    patch.scheduleTime = scheduleTime;
+  }
+  if (hasOwn(body, 'status')) {
+    patch.status = readAndValidateLabTestStatus(body, 'status', undefined);
+  }
+  if (hasOwn(body, 'priority')) {
+    patch.priority = readRequiredString(body, 'priority');
+  }
+  if (hasOwn(body, 'orderedBy')) {
+    patch.orderedBy = readRequiredString(body, 'orderedBy');
+  }
+  if (hasOwn(body, 'notes')) {
+    patch.notes = readRequiredString(body, 'notes');
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable lab test fields provided.');
+  }
+
+  patch.updatedAt = new Date().toISOString();
+  await labTestRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    labTestId,
+  });
+}));
+
+app.post('/api/labTests/result', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const labTestId = readRequiredString(body, 'labTestId');
+  await assertPatientAccess(context.user, patientId);
+
+  const resultValue = readRequiredString(body, 'resultValue');
+  const resultUnit = readOptionalString(body, 'resultUnit');
+  const referenceRange = readOptionalString(body, 'referenceRange');
+  const interpretation = readOptionalString(body, 'interpretation');
+  const resultFlag = readOptionalLabResultFlag(body, 'resultFlag');
+  const resultAtRaw = readOptionalString(body, 'resultAt');
+  const resultAt = parseIsoDateTimeOrThrow(resultAtRaw, 'resultAt');
+
+  const labTestRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('labTests')
+      .doc(labTestId);
+  await assertDocumentExists(
+      labTestRef,
+      `Lab test "${labTestId}" for patient "${patientId}" was not found.`,
+  );
+
+  const nowIso = new Date().toISOString();
+  const patch: UnknownRecord = {
+    resultValue,
+    resultAt,
+    status: 'completed',
+    updatedAt: nowIso,
+  };
+
+  if (resultUnit) {
+    patch.resultUnit = resultUnit;
+  }
+  if (referenceRange) {
+    patch.referenceRange = referenceRange;
+  }
+  if (interpretation) {
+    patch.interpretation = interpretation;
+  }
+  if (resultFlag) {
+    patch.resultFlag = resultFlag;
+  }
+
+  await labTestRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    labTestId,
+  });
+}));
+
 app.post('/api/checklist/get', asyncRoute(async (req, res) => {
   const context = await getAuthContext(req);
   const body = requireBodyObject(req.body);
@@ -890,6 +1095,121 @@ app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
   res.status(200).json({
     ok: true,
     result: updatedResult,
+  });
+}));
+
+app.post('/api/reports/generate', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const startDate = readOptionalString(body, 'startDate');
+  const endDate = readOptionalString(body, 'endDate');
+  const maxDaysRaw = readOptionalNumber(body, 'maxDays') ?? 90;
+  const maxDays = Math.trunc(maxDaysRaw);
+
+  if (startDate) {
+    assertDateId(startDate, 'startDate');
+  }
+  if (endDate) {
+    assertDateId(endDate, 'endDate');
+  }
+  if (startDate && endDate && startDate > endDate) {
+    throw new HttpError(400, 'invalid-argument', 'startDate cannot be after endDate.');
+  }
+  if (!Number.isFinite(maxDaysRaw) || maxDays < 1 || maxDays > 365) {
+    throw new HttpError(400, 'invalid-argument', 'maxDays must be between 1 and 365.');
+  }
+
+  await assertPatientAccess(context.user, patientId);
+
+  const patientRef = firestore.collection('patients').doc(patientId);
+  let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = patientRef
+      .collection('dailyChecklists')
+      .orderBy('dateId', 'desc');
+  if (startDate) {
+    query = query.where('dateId', '>=', startDate);
+  }
+  if (endDate) {
+    query = query.where('dateId', '<=', endDate);
+  }
+
+  const checklistSnapshot = await query.limit(maxDays).get();
+  const nowIso = new Date().toISOString();
+  const reportCollectionRef = patientRef
+      .collection(REPORTS_COLLECTION)
+      .doc(REPORTS_DAILY_DOC_ID)
+      .collection(REPORTS_BY_DATE_SUBCOLLECTION);
+
+  let batch = firestore.batch();
+  let batchWrites = 0;
+  let generatedCount = 0;
+  let skippedCount = 0;
+  let committedWrites = 0;
+  const summaries: UnknownRecord[] = [];
+
+  for (const checklistDoc of checklistSnapshot.docs) {
+    const checklist = (checklistDoc.data() ?? {}) as UnknownRecord;
+    const dateId = readRecordString(checklist, 'dateId') ?? checklistDoc.id;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateId)) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const tasks = toTaskList(checklist.tasks);
+    const results = toMutableTaskResults(checklist.results);
+    const counts = aggregateDailyReportCounts(tasks, results);
+    const reportPayload: UnknownRecord = {
+      id: dateId,
+      dateId,
+      patientId,
+      done: counts.done,
+      missed: counts.missed,
+      late: counts.late,
+      skipped: counts.skipped,
+      totalTasks: tasks.length,
+      completedTasks: counts.done + counts.late + counts.skipped,
+      sourceChecklistPath: checklistDoc.ref.path,
+      createdAt: readRecordString(checklist, 'createdAt') ?? nowIso,
+      updatedAt: nowIso,
+    };
+
+    batch.set(reportCollectionRef.doc(dateId), reportPayload, {merge: true});
+    batchWrites += 1;
+    generatedCount += 1;
+
+    if (summaries.length < 31) {
+      summaries.push({
+        dateId,
+        ...counts,
+        totalTasks: tasks.length,
+      });
+    }
+
+    if (batchWrites >= 400) {
+      await batch.commit();
+      committedWrites += batchWrites;
+      batch = firestore.batch();
+      batchWrites = 0;
+    }
+  }
+
+  if (batchWrites > 0) {
+    await batch.commit();
+    committedWrites += batchWrites;
+  }
+
+  res.status(200).json({
+    ok: true,
+    patientId,
+    startDate: startDate ?? null,
+    endDate: endDate ?? null,
+    sourceChecklistCount: checklistSnapshot.size,
+    generatedCount,
+    skippedCount,
+    writesCommitted: committedWrites,
+    summaries,
   });
 }));
 
@@ -2231,6 +2551,61 @@ function toMutableTaskResults(value: unknown): MutableTaskResult[] {
   return results;
 }
 
+interface DailyReportCounts {
+  done: number;
+  missed: number;
+  late: number;
+  skipped: number;
+}
+
+function aggregateDailyReportCounts(
+    tasks: Task[],
+    results: MutableTaskResult[],
+): DailyReportCounts {
+  const resultByTaskId = new Map<string, MutableTaskResult>();
+  for (const result of results) {
+    resultByTaskId.set(result.taskId, result);
+  }
+
+  const counts: DailyReportCounts = {
+    done: 0,
+    missed: 0,
+    late: 0,
+    skipped: 0,
+  };
+
+  for (const task of tasks) {
+    const status = normalizeReportStatus(resultByTaskId.get(task.id)?.status);
+    if (status === 'completed' || status === 'done') {
+      counts.done += 1;
+      continue;
+    }
+    if (status === 'late') {
+      counts.late += 1;
+      continue;
+    }
+    if (status === 'skipped') {
+      counts.skipped += 1;
+      continue;
+    }
+    counts.missed += 1;
+  }
+
+  return counts;
+}
+
+function normalizeReportStatus(value: unknown): string {
+  if (typeof value !== 'string') {
+    return 'pending';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return 'pending';
+  }
+  return normalized;
+}
+
 function requireBodyObject(value: unknown): UnknownRecord {
   if (!isRecord(value)) {
     throw new HttpError(400, 'invalid-argument', 'Request body must be a JSON object.');
@@ -2453,6 +2828,56 @@ function readOptionalGender(obj: UnknownRecord, key: string): string | undefined
     return undefined;
   }
   return readRequiredGender(obj, key);
+}
+
+function readAndValidateLabTestStatus(
+    obj: UnknownRecord,
+    key: string,
+    defaultValue: string | undefined,
+): string {
+  const raw = hasOwn(obj, key) ? readRequiredString(obj, key) : defaultValue;
+  if (!raw) {
+    throw new HttpError(400, 'invalid-argument', `${key} is required.`);
+  }
+
+  const normalized = raw.toLowerCase();
+  if (!ALLOWED_LAB_TEST_STATUSES.has(normalized)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(ALLOWED_LAB_TEST_STATUSES).join(', ')}.`,
+    );
+  }
+  return normalized === 'canceled' ? 'cancelled' : normalized;
+}
+
+function readOptionalLabResultFlag(obj: UnknownRecord, key: string): string | undefined {
+  const value = readOptionalString(obj, key);
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.toLowerCase();
+  if (!ALLOWED_LAB_RESULT_FLAGS.has(normalized)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(ALLOWED_LAB_RESULT_FLAGS).join(', ')}.`,
+    );
+  }
+  return normalized;
+}
+
+function parseIsoDateTimeOrThrow(raw: string | undefined, fieldName: string): string {
+  if (!raw) {
+    return new Date().toISOString();
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new HttpError(400, 'invalid-argument', `${fieldName} must be valid ISO datetime.`);
+  }
+  return parsed.toISOString();
 }
 
 function readRequiredBoolean(obj: UnknownRecord, key: string): boolean {

@@ -37,9 +37,9 @@ class PatientDetailsScreen extends ConsumerWidget {
             isScrollable: true,
             tabs: <Widget>[
               Tab(text: 'Overview'),
-              Tab(text: 'Medicines'),
+              Tab(text: 'Medications'),
               Tab(text: 'Procedures'),
-              Tab(text: 'Insulin'),
+              Tab(text: 'Lab Tests'),
               Tab(text: 'Checklist'),
               Tab(text: 'Health Checks'),
               Tab(text: 'Reports'),
@@ -52,7 +52,7 @@ class PatientDetailsScreen extends ConsumerWidget {
             _OverviewTab(patientId: patientId),
             _MedicinesTab(patientId: patientId),
             _ProceduresTab(patientId: patientId),
-            _InsulinTab(patientId: patientId),
+            _LabTestsTab(patientId: patientId),
             _ChecklistTab(patientId: patientId),
             _HealthChecksTab(patientId: patientId),
             _ReportsTab(patientId: patientId),
@@ -303,6 +303,7 @@ class _MedicinesTab extends ConsumerWidget {
     final canManage =
         _canManageRecords(ref.watch(userProfileProvider).value?.role);
     final medicinesAsync = ref.watch(medicinesProvider(patientId));
+    final profilesAsync = ref.watch(insulinProfilesProvider(patientId));
 
     Future<void> createMedicine() async {
       final draft = await showDialog<_MedicineDraft>(
@@ -375,79 +376,271 @@ class _MedicinesTab extends ConsumerWidget {
       }
     }
 
-    return medicinesAsync.when(
-      data: (medicines) {
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: <Widget>[
-            if (canManage)
-              _TabActionHeader(
-                label: 'Medicines',
-                actionLabel: 'Add Medicine',
-                onPressed: createMedicine,
-              ),
-            if (medicines.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No medicines.'),
-                ),
-              ),
-            ...medicines.map((medicine) {
-              final dose = medicine.doseAmount != null
-                  ? '${medicine.doseAmount} ${medicine.doseUnit ?? ''}'.trim()
-                  : '-';
-              final schedule = medicine.scheduleTimes.isEmpty
-                  ? '-'
-                  : medicine.scheduleTimes.join(', ');
+    Future<void> createInsulinProfile() async {
+      final draft = await showDialog<_InsulinProfileDraft>(
+        context: context,
+        builder: (_) => const _InsulinProfileDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+      try {
+        await ref.read(apiClientProvider).createInsulinProfile(
+              patientId: patientId,
+              type: draft.type,
+              label: draft.label,
+              insulinName: draft.insulinName,
+              active: draft.active,
+              slidingScaleMgdl: draft.slidingScaleMgdl,
+              mealBaseUnits: draft.mealBaseUnits,
+              defaultBaseUnits: draft.defaultBaseUnits,
+              fixedUnits: draft.fixedUnits,
+              notes: draft.notes,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Insulin profile added.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to add insulin profile: $error')),
+        );
+      }
+    }
+
+    Future<void> editInsulinProfile(InsulinProfileModel profile) async {
+      final draft = await showDialog<_InsulinProfileDraft>(
+        context: context,
+        builder: (_) => _InsulinProfileDialog(initialValue: profile),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).updateInsulinProfile(
+              patientId: patientId,
+              insulinProfileId: profile.id,
+              type: draft.type,
+              label: draft.label,
+              insulinName: draft.insulinName,
+              active: draft.active,
+              slidingScaleMgdl: draft.slidingScaleMgdl,
+              mealBaseUnits: draft.mealBaseUnits,
+              defaultBaseUnits: draft.defaultBaseUnits,
+              fixedUnits: draft.fixedUnits,
+              notes: draft.notes,
+              scheduleTimes: draft.scheduleTimes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Insulin profile updated.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to update insulin profile: $error')),
+        );
+      }
+    }
+
+    if (medicinesAsync.hasError && !medicinesAsync.hasValue) {
+      return Center(
+        child: Text('Unable to load medicines: ${medicinesAsync.error}'),
+      );
+    }
+    if (profilesAsync.hasError && !profilesAsync.hasValue) {
+      return Center(
+        child: Text('Unable to load insulin profiles: ${profilesAsync.error}'),
+      );
+    }
+    if ((medicinesAsync.isLoading && !medicinesAsync.hasValue) ||
+        (profilesAsync.isLoading && !profilesAsync.hasValue)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    final medicines = medicinesAsync.value ?? const <MedicineModel>[];
+    final profiles = profilesAsync.value ?? const <InsulinProfileModel>[];
+
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: <Widget>[
+        if (canManage)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: <Widget>[
+                  FilledButton.icon(
+                    onPressed: createMedicine,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add Medicine'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: createInsulinProfile,
+                    icon: const Icon(Icons.bloodtype_outlined),
+                    label: const Text('Add Insulin Profile'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Text(
+          'Medicines',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        if (medicines.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No medicines.'),
+            ),
+          ),
+        ...medicines.map((medicine) {
+          final dose = medicine.doseAmount != null
+              ? '${medicine.doseAmount} ${medicine.doseUnit ?? ''}'.trim()
+              : '-';
+          final schedule = medicine.scheduleTimes.isEmpty
+              ? '-'
+              : medicine.scheduleTimes.join(', ');
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
                       children: <Widget>[
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                medicine.name,
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                            ),
-                            if (canManage)
-                              IconButton(
-                                tooltip: 'Edit medicine',
-                                onPressed: () => editMedicine(medicine),
-                                icon: const Icon(Icons.edit_outlined),
-                              ),
-                          ],
+                        Expanded(
+                          child: Text(
+                            medicine.name,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        _KeyValue(label: 'Dose', value: dose),
-                        _KeyValue(label: 'Schedule', value: schedule),
-                        _KeyValue(
-                          label: 'Instructions',
-                          value: medicine.instructions ?? '-',
-                        ),
-                        _KeyValue(
-                          label: 'Status',
-                          value: medicine.active ? 'Active' : 'Inactive',
-                        ),
+                        if (canManage)
+                          IconButton(
+                            tooltip: 'Edit medicine',
+                            onPressed: () => editMedicine(medicine),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
                       ],
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    _KeyValue(label: 'Dose', value: dose),
+                    _KeyValue(label: 'Schedule', value: schedule),
+                    _KeyValue(
+                      label: 'Instructions',
+                      value: medicine.instructions ?? '-',
+                    ),
+                    _KeyValue(
+                      label: 'Status',
+                      value: medicine.active ? 'Active' : 'Inactive',
+                    ),
+                  ],
                 ),
-              );
-            }),
-          ],
-        );
-      },
-      loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) =>
-          Center(child: Text('Unable to load medicines: $error')),
+              ),
+            ),
+          );
+        }),
+        const SizedBox(height: 12),
+        Text(
+          'Insulin Profiles',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        if (profiles.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(16),
+              child: Text('No insulin profiles.'),
+            ),
+          ),
+        ...profiles.map((profile) {
+          final typeLabel = profile.isRapid ? 'Rapid' : 'Basal';
+          final scale = profile.slidingScaleMgdl.isEmpty
+              ? '-'
+              : profile.slidingScaleMgdl.join(', ');
+          final mealBase = profile.mealBaseUnits.isEmpty
+              ? '-'
+              : profile.mealBaseUnits.entries
+                  .map((entry) => '${entry.key}: ${entry.value}')
+                  .join(', ');
+          final schedule = profile.scheduleTimes.isEmpty
+              ? '-'
+              : profile.scheduleTimes.join(', ');
+
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            profile.label,
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        Chip(label: Text(typeLabel)),
+                        if (canManage)
+                          IconButton(
+                            tooltip: 'Edit insulin profile',
+                            onPressed: () => editInsulinProfile(profile),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    _KeyValue(
+                        label: 'Insulin', value: profile.insulinName ?? '-'),
+                    _KeyValue(label: 'Schedule', value: schedule),
+                    if (profile.isRapid) ...<Widget>[
+                      _KeyValue(label: 'Sliding Scale (mg/dL)', value: scale),
+                      _KeyValue(label: 'Meal Base (units)', value: mealBase),
+                      _KeyValue(
+                        label: 'Default Base Units',
+                        value: profile.defaultBaseUnits?.toString() ?? '-',
+                      ),
+                    ] else ...<Widget>[
+                      _KeyValue(
+                        label: 'Fixed Units',
+                        value: profile.fixedUnits?.toString() ?? '-',
+                      ),
+                    ],
+                    _KeyValue(label: 'Notes', value: profile.notes ?? '-'),
+                    _KeyValue(
+                      label: 'Status',
+                      value: profile.active ? 'Active' : 'Inactive',
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ],
     );
   }
 }
@@ -608,127 +801,197 @@ class _ProceduresTab extends ConsumerWidget {
   }
 }
 
-class _InsulinTab extends ConsumerWidget {
-  const _InsulinTab({required this.patientId});
+class _LabTestDraft {
+  const _LabTestDraft({
+    required this.testName,
+    required this.status,
+    this.panel,
+    this.scheduleDate,
+    this.scheduleTime,
+    this.priority,
+    this.orderedBy,
+    this.notes,
+  });
+
+  final String testName;
+  final String status;
+  final String? panel;
+  final String? scheduleDate;
+  final String? scheduleTime;
+  final String? priority;
+  final String? orderedBy;
+  final String? notes;
+}
+
+class _LabResultDraft {
+  const _LabResultDraft({
+    required this.resultValue,
+    required this.resultAt,
+    this.resultUnit,
+    this.referenceRange,
+    this.interpretation,
+    this.resultFlag,
+  });
+
+  final String resultValue;
+  final DateTime resultAt;
+  final String? resultUnit;
+  final String? referenceRange;
+  final String? interpretation;
+  final String? resultFlag;
+}
+
+class _LabTestsTab extends ConsumerWidget {
+  const _LabTestsTab({required this.patientId});
 
   final String patientId;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final canManage =
-        _canManageRecords(ref.watch(userProfileProvider).value?.role);
-    final profilesAsync = ref.watch(insulinProfilesProvider(patientId));
+    final role = ref.watch(userProfileProvider).value?.role;
+    final canManage = _canManageLabTests(role);
+    final labTestsAsync = ref.watch(labTestsProvider(patientId));
 
-    Future<void> createInsulinProfile() async {
-      final draft = await showDialog<_InsulinProfileDraft>(
+    Future<void> createLabTest() async {
+      final draft = await showDialog<_LabTestDraft>(
         context: context,
-        builder: (_) => const _InsulinProfileDialog(),
+        builder: (_) => const _LabTestDialog(),
       );
       if (draft == null) {
         return;
       }
 
       try {
-        await ref.read(apiClientProvider).createInsulinProfile(
+        await ref.read(apiClientProvider).createLabTest(
               patientId: patientId,
-              type: draft.type,
-              label: draft.label,
-              insulinName: draft.insulinName,
-              active: draft.active,
-              slidingScaleMgdl: draft.slidingScaleMgdl,
-              mealBaseUnits: draft.mealBaseUnits,
-              defaultBaseUnits: draft.defaultBaseUnits,
-              fixedUnits: draft.fixedUnits,
+              testName: draft.testName,
+              status: draft.status,
+              panel: draft.panel,
+              scheduleDate: draft.scheduleDate,
+              scheduleTime: draft.scheduleTime,
+              priority: draft.priority,
+              orderedBy: draft.orderedBy,
               notes: draft.notes,
-              scheduleTimes: draft.scheduleTimes,
             );
         if (!context.mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Insulin profile added.')),
+          const SnackBar(content: Text('Lab test scheduled.')),
         );
       } catch (error) {
         if (!context.mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to add insulin profile: $error')),
+          SnackBar(content: Text('Unable to schedule lab test: $error')),
         );
       }
     }
 
-    Future<void> editInsulinProfile(InsulinProfileModel profile) async {
-      final draft = await showDialog<_InsulinProfileDraft>(
+    Future<void> editLabTest(LabTestModel test) async {
+      final draft = await showDialog<_LabTestDraft>(
         context: context,
-        builder: (_) => _InsulinProfileDialog(initialValue: profile),
+        builder: (_) => _LabTestDialog(initialValue: test),
       );
       if (draft == null) {
         return;
       }
 
       try {
-        await ref.read(apiClientProvider).updateInsulinProfile(
+        await ref.read(apiClientProvider).updateLabTest(
               patientId: patientId,
-              insulinProfileId: profile.id,
-              type: draft.type,
-              label: draft.label,
-              insulinName: draft.insulinName,
-              active: draft.active,
-              slidingScaleMgdl: draft.slidingScaleMgdl,
-              mealBaseUnits: draft.mealBaseUnits,
-              defaultBaseUnits: draft.defaultBaseUnits,
-              fixedUnits: draft.fixedUnits,
+              labTestId: test.id,
+              testName: draft.testName,
+              panel: draft.panel,
+              scheduleDate: draft.scheduleDate,
+              scheduleTime: draft.scheduleTime,
+              status: draft.status,
+              priority: draft.priority,
+              orderedBy: draft.orderedBy,
               notes: draft.notes,
-              scheduleTimes: draft.scheduleTimes,
             );
         if (!context.mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Insulin profile updated.')),
+          const SnackBar(content: Text('Lab test updated.')),
         );
       } catch (error) {
         if (!context.mounted) {
           return;
         }
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to update insulin profile: $error')),
+          SnackBar(content: Text('Unable to update lab test: $error')),
         );
       }
     }
 
-    return profilesAsync.when(
-      data: (profiles) {
+    Future<void> recordLabResult(LabTestModel test) async {
+      final draft = await showDialog<_LabResultDraft>(
+        context: context,
+        builder: (_) => _LabResultDialog(initialValue: test),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).recordLabTestResult(
+              patientId: patientId,
+              labTestId: test.id,
+              resultValue: draft.resultValue,
+              resultUnit: draft.resultUnit,
+              referenceRange: draft.referenceRange,
+              interpretation: draft.interpretation,
+              resultFlag: draft.resultFlag,
+              resultAt: draft.resultAt,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Lab result saved.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to save lab result: $error')),
+        );
+      }
+    }
+
+    return labTestsAsync.when(
+      data: (labTests) {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: <Widget>[
             if (canManage)
               _TabActionHeader(
-                label: 'Insulin Profiles',
-                actionLabel: 'Add Profile',
-                onPressed: createInsulinProfile,
+                label: 'Lab Tests',
+                actionLabel: 'Add Lab Test',
+                onPressed: createLabTest,
               ),
-            if (profiles.isEmpty)
+            if (labTests.isEmpty)
               const Card(
                 child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('No insulin profiles.'),
+                  child: Text(
+                    'No lab tests scheduled. Add one with schedule date/time and record result later.',
+                  ),
                 ),
               ),
-            ...profiles.map((profile) {
-              final typeLabel = profile.isRapid ? 'Rapid' : 'Basal';
-              final scale = profile.slidingScaleMgdl.isEmpty
+            ...labTests.map((test) {
+              final schedule = _formatLabTestSchedule(test);
+              final resultAt = _formatIsoDateTime(test.resultAt);
+              final resultSummary = test.resultValue == null
                   ? '-'
-                  : profile.slidingScaleMgdl.join(', ');
-              final mealBase = profile.mealBaseUnits.isEmpty
-                  ? '-'
-                  : profile.mealBaseUnits.entries
-                      .map((entry) => '${entry.key}: ${entry.value}')
-                      .join(', ');
-              final schedule = profile.scheduleTimes.isEmpty
-                  ? '-'
-                  : profile.scheduleTimes.join(', ');
+                  : [
+                      test.resultValue,
+                      if (test.resultUnit != null) test.resultUnit,
+                    ].whereType<String>().join(' ');
 
               return Padding(
                 padding: const EdgeInsets.only(bottom: 12),
@@ -742,44 +1005,48 @@ class _InsulinTab extends ConsumerWidget {
                           children: <Widget>[
                             Expanded(
                               child: Text(
-                                profile.label,
+                                test.testName,
                                 style: Theme.of(context).textTheme.titleMedium,
                               ),
                             ),
-                            Chip(label: Text(typeLabel)),
+                            _LabStatusChip(status: test.status),
                             if (canManage)
                               IconButton(
-                                tooltip: 'Edit profile',
-                                onPressed: () => editInsulinProfile(profile),
+                                tooltip: 'Edit lab test',
+                                onPressed: () => editLabTest(test),
                                 icon: const Icon(Icons.edit_outlined),
                               ),
                           ],
                         ),
                         const SizedBox(height: 8),
-                        _KeyValue(
-                            label: 'Insulin',
-                            value: profile.insulinName ?? '-'),
+                        _KeyValue(label: 'Panel', value: test.panel ?? '-'),
                         _KeyValue(label: 'Schedule', value: schedule),
-                        if (profile.isRapid) ...<Widget>[
-                          _KeyValue(
-                              label: 'Sliding Scale (mg/dL)', value: scale),
-                          _KeyValue(
-                              label: 'Meal Base (units)', value: mealBase),
-                          _KeyValue(
-                            label: 'Default Base Units',
-                            value: profile.defaultBaseUnits?.toString() ?? '-',
-                          ),
-                        ] else ...<Widget>[
-                          _KeyValue(
-                            label: 'Fixed Units',
-                            value: profile.fixedUnits?.toString() ?? '-',
+                        _KeyValue(
+                            label: 'Priority', value: test.priority ?? '-'),
+                        _KeyValue(
+                            label: 'Ordered By', value: test.orderedBy ?? '-'),
+                        _KeyValue(label: 'Result', value: resultSummary),
+                        _KeyValue(label: 'Result Date', value: resultAt),
+                        _KeyValue(
+                          label: 'Reference Range',
+                          value: test.referenceRange ?? '-',
+                        ),
+                        _KeyValue(label: 'Flag', value: test.resultFlag ?? '-'),
+                        _KeyValue(
+                          label: 'Interpretation',
+                          value: test.interpretation ?? '-',
+                        ),
+                        _KeyValue(label: 'Notes', value: test.notes ?? '-'),
+                        if (canManage) ...<Widget>[
+                          const SizedBox(height: 10),
+                          FilledButton.icon(
+                            onPressed: () => recordLabResult(test),
+                            icon: const Icon(Icons.biotech_outlined),
+                            label: Text(test.hasResult
+                                ? 'Update Result'
+                                : 'Record Result'),
                           ),
                         ],
-                        _KeyValue(label: 'Notes', value: profile.notes ?? '-'),
-                        _KeyValue(
-                          label: 'Status',
-                          value: profile.active ? 'Active' : 'Inactive',
-                        ),
                       ],
                     ),
                   ),
@@ -791,13 +1058,528 @@ class _InsulinTab extends ConsumerWidget {
       },
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) =>
-          Center(child: Text('Unable to load insulin profiles: $error')),
+          Center(child: Text('Unable to load lab tests: $error')),
+    );
+  }
+}
+
+class _LabTestDialog extends StatefulWidget {
+  const _LabTestDialog({
+    this.initialValue,
+  });
+
+  final LabTestModel? initialValue;
+
+  @override
+  State<_LabTestDialog> createState() => _LabTestDialogState();
+}
+
+class _LabTestDialogState extends State<_LabTestDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _panelController;
+  late final TextEditingController _scheduleDateController;
+  late final TextEditingController _scheduleTimeController;
+  late String _status;
+  late String? _priority;
+  late final TextEditingController _orderedByController;
+  late final TextEditingController _notesController;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _nameController = TextEditingController(text: initial?.testName ?? '');
+    _panelController = TextEditingController(text: initial?.panel ?? '');
+    _scheduleDateController =
+        TextEditingController(text: initial?.scheduleDate ?? '');
+    _scheduleTimeController =
+        TextEditingController(text: initial?.scheduleTime ?? '');
+    _status = initial?.status ?? _labTestStatusOptions.first;
+    _priority = initial?.priority;
+    _orderedByController =
+        TextEditingController(text: initial?.orderedBy ?? '');
+    _notesController = TextEditingController(text: initial?.notes ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _panelController.dispose();
+    _scheduleDateController.dispose();
+    _scheduleTimeController.dispose();
+    _orderedByController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialValue != null;
+    return AlertDialog(
+      title: Text(isEditing ? 'Edit Lab Test' : 'Add Lab Test'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(labelText: 'Test Name'),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Test name is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _panelController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Panel (optional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _scheduleDateController,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule Date',
+                    hintText: 'YYYY-MM-DD',
+                    suffixIcon: Icon(Icons.calendar_today_outlined),
+                  ),
+                  onTap: _selectScheduleDate,
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Schedule date is required.';
+                    }
+                    if (!_isValidDateId(value.trim())) {
+                      return 'Use YYYY-MM-DD format.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _scheduleTimeController,
+                  readOnly: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule Time (optional)',
+                    suffixIcon: Icon(Icons.schedule_outlined),
+                  ),
+                  onTap: _selectScheduleTime,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _status,
+                  decoration: const InputDecoration(
+                    labelText: 'Status',
+                  ),
+                  items: _labTestStatusOptions
+                      .map(
+                        (status) => DropdownMenuItem<String>(
+                          value: status,
+                          child: Text(_displayLabTestStatus(status)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _status = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String?>(
+                  initialValue: _priority,
+                  decoration: const InputDecoration(
+                    labelText: 'Priority (optional)',
+                  ),
+                  items: <DropdownMenuItem<String?>>[
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Not set'),
+                    ),
+                    ..._labPriorityOptions.map(
+                      (priority) => DropdownMenuItem<String?>(
+                        value: priority,
+                        child: Text(priority),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _priority = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _orderedByController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Ordered By (optional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _notesController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'Save' : 'Create'),
+        ),
+      ],
+    );
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final panel = _panelController.text.trim();
+    final orderedBy = _orderedByController.text.trim();
+    final notes = _notesController.text.trim();
+    final scheduleTime = _scheduleTimeController.text.trim();
+
+    Navigator.of(context).pop(
+      _LabTestDraft(
+        testName: _nameController.text.trim(),
+        status: _status,
+        panel: panel.isEmpty ? null : panel,
+        scheduleDate: _scheduleDateController.text.trim(),
+        scheduleTime: scheduleTime.isEmpty ? null : scheduleTime,
+        priority: _priority,
+        orderedBy: orderedBy.isEmpty ? null : orderedBy,
+        notes: notes.isEmpty ? null : notes,
+      ),
+    );
+  }
+
+  Future<void> _selectScheduleDate() async {
+    final initial = _scheduleDateController.text.trim().isEmpty
+        ? DateTime.now()
+        : DateTime.tryParse(
+                '${_scheduleDateController.text.trim()}T00:00:00') ??
+            DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select Schedule Date',
+    );
+    if (picked == null) {
+      return;
+    }
+    _scheduleDateController.text = _formatDateId(picked);
+  }
+
+  Future<void> _selectScheduleTime() async {
+    final picked = await _pickScheduleTime(context);
+    if (picked == null) {
+      return;
+    }
+    _scheduleTimeController.text = picked;
+  }
+
+  bool _isValidDateId(String value) {
+    final pattern = RegExp(r'^\d{4}-\d{2}-\d{2}$');
+    if (!pattern.hasMatch(value)) {
+      return false;
+    }
+    return DateTime.tryParse('${value}T00:00:00Z') != null;
+  }
+}
+
+class _LabResultDialog extends StatefulWidget {
+  const _LabResultDialog({
+    required this.initialValue,
+  });
+
+  final LabTestModel initialValue;
+
+  @override
+  State<_LabResultDialog> createState() => _LabResultDialogState();
+}
+
+class _LabResultDialogState extends State<_LabResultDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _resultValueController;
+  late final TextEditingController _resultUnitController;
+  late final TextEditingController _referenceRangeController;
+  late final TextEditingController _interpretationController;
+  late DateTime _resultAt;
+  String? _resultFlag;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _resultValueController =
+        TextEditingController(text: initial.resultValue ?? '');
+    _resultUnitController =
+        TextEditingController(text: initial.resultUnit ?? '');
+    _referenceRangeController =
+        TextEditingController(text: initial.referenceRange ?? '');
+    _interpretationController =
+        TextEditingController(text: initial.interpretation ?? '');
+    _resultFlag = initial.resultFlag;
+    _resultAt = DateTime.tryParse(initial.resultAt ?? '') ?? DateTime.now();
+  }
+
+  @override
+  void dispose() {
+    _resultValueController.dispose();
+    _resultUnitController.dispose();
+    _referenceRangeController.dispose();
+    _interpretationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Record Lab Result'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                TextFormField(
+                  controller: _resultValueController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Result Value',
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Result value is required.';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _resultUnitController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Result Unit (optional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _referenceRangeController,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Reference Range (optional)',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String?>(
+                  initialValue: _resultFlag,
+                  decoration: const InputDecoration(
+                    labelText: 'Result Flag (optional)',
+                  ),
+                  items: <DropdownMenuItem<String?>>[
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('Not set'),
+                    ),
+                    ..._labResultFlagOptions.map(
+                      (flag) => DropdownMenuItem<String?>(
+                        value: flag,
+                        child: Text(flag),
+                      ),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      _resultFlag = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectResultDate,
+                        icon: const Icon(Icons.event_outlined),
+                        label: Text(_formatDateId(_resultAt)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: _selectResultTime,
+                        icon: const Icon(Icons.schedule_outlined),
+                        label: Text(_formatTimeOfDay(
+                            TimeOfDay.fromDateTime(_resultAt))),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _interpretationController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Interpretation (optional)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save Result'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _selectResultDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _resultAt,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select Result Date',
+    );
+    if (picked == null) {
+      return;
+    }
+    setState(() {
+      _resultAt = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        _resultAt.hour,
+        _resultAt.minute,
+      );
+    });
+  }
+
+  Future<void> _selectResultTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_resultAt),
+      helpText: 'Select Result Time',
+    );
+    if (picked == null) {
+      return;
+    }
+    setState(() {
+      _resultAt = DateTime(
+        _resultAt.year,
+        _resultAt.month,
+        _resultAt.day,
+        picked.hour,
+        picked.minute,
+      );
+    });
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final resultUnit = _resultUnitController.text.trim();
+    final referenceRange = _referenceRangeController.text.trim();
+    final interpretation = _interpretationController.text.trim();
+
+    Navigator.of(context).pop(
+      _LabResultDraft(
+        resultValue: _resultValueController.text.trim(),
+        resultAt: _resultAt,
+        resultUnit: resultUnit.isEmpty ? null : resultUnit,
+        referenceRange: referenceRange.isEmpty ? null : referenceRange,
+        interpretation: interpretation.isEmpty ? null : interpretation,
+        resultFlag: _resultFlag,
+      ),
+    );
+  }
+}
+
+class _LabStatusChip extends StatelessWidget {
+  const _LabStatusChip({required this.status});
+
+  final String status;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalized = status.trim().toLowerCase();
+    final color = switch (normalized) {
+      'scheduled' => Colors.blue.shade700,
+      'in_progress' => Colors.orange.shade700,
+      'completed' => Colors.green.shade700,
+      'cancelled' || 'canceled' => Colors.grey.shade700,
+      _ => Colors.blueGrey.shade700,
+    };
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        _displayLabTestStatus(normalized),
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     );
   }
 }
 
 bool _canManageRecords(String? role) {
   return role == 'admin' || role == 'supervisor';
+}
+
+bool _canManageLabTests(String? role) {
+  return role == 'admin' || role == 'supervisor' || role == 'nurse';
 }
 
 const List<String> _medicineDoseUnitOptions = <String>[
@@ -813,6 +1595,27 @@ const List<String> _procedureFrequencyOptions = <String>[
   'daily',
   'weekly',
   'as_needed',
+];
+
+const List<String> _labTestStatusOptions = <String>[
+  'scheduled',
+  'in_progress',
+  'completed',
+  'cancelled',
+];
+
+const List<String> _labPriorityOptions = <String>[
+  'routine',
+  'urgent',
+  'stat',
+];
+
+const List<String> _labResultFlagOptions = <String>[
+  'normal',
+  'low',
+  'high',
+  'critical',
+  'abnormal',
 ];
 
 class _TabActionHeader extends StatelessWidget {
@@ -2711,6 +3514,63 @@ class _ReportsTab extends ConsumerStatefulWidget {
 class _ReportsTabState extends ConsumerState<_ReportsTab> {
   DateTime? _startDate;
   DateTime? _endDate;
+  bool _isGeneratingReports = false;
+
+  Future<void> _generateReports() async {
+    if (_isGeneratingReports) {
+      return;
+    }
+
+    setState(() {
+      _isGeneratingReports = true;
+    });
+
+    try {
+      final response = await ref.read(apiClientProvider).generatePatientReports(
+            patientId: widget.patientId,
+            startDate: _startDate == null ? null : _formatDateId(_startDate!),
+            endDate: _endDate == null ? null : _formatDateId(_endDate!),
+            maxDays: 180,
+          );
+
+      final generatedCountRaw = response['generatedCount'];
+      final sourceChecklistCountRaw = response['sourceChecklistCount'];
+      final generatedCount =
+          generatedCountRaw is num ? generatedCountRaw.toInt() : 0;
+      final sourceChecklistCount =
+          sourceChecklistCountRaw is num ? sourceChecklistCountRaw.toInt() : 0;
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            generatedCount == 0
+                ? 'No reports generated. Create/generate checklists first.'
+                : 'Generated $generatedCount report day(s) from $sourceChecklistCount checklist(s).',
+          ),
+        ),
+      );
+
+      ref.invalidate(reportsProvider(widget.patientId));
+      ref.invalidate(todayReportProvider(widget.patientId));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Report generation failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isGeneratingReports = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2719,7 +3579,25 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
     return reportsAsync.when(
       data: (reports) {
         if (reports.isEmpty) {
-          return const Center(child: Text('No reports yet.'));
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: <Widget>[
+              _buildDateRangeCard(
+                context,
+                filteredCount: 0,
+                onGenerate: _generateReports,
+              ),
+              const SizedBox(height: 12),
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'No reports yet. Use "Generate Reports" to build daily reports from existing checklists.',
+                  ),
+                ),
+              ),
+            ],
+          );
         }
 
         final sorted = reports.toList()
@@ -2732,6 +3610,7 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
               _buildDateRangeCard(
                 context,
                 filteredCount: 0,
+                onGenerate: _generateReports,
               ),
               const SizedBox(height: 12),
               const Card(
@@ -2763,6 +3642,7 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
             _buildDateRangeCard(
               context,
               filteredCount: filtered.length,
+              onGenerate: _generateReports,
             ),
             const SizedBox(height: 12),
             Card(
@@ -2866,6 +3746,7 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
   Widget _buildDateRangeCard(
     BuildContext context, {
     required int filteredCount,
+    required VoidCallback onGenerate,
   }) {
     final startLabel = _startDate == null
         ? 'Start Date'
@@ -2909,6 +3790,17 @@ class _ReportsTabState extends ConsumerState<_ReportsTab> {
                     },
                     child: const Text('Clear'),
                   ),
+                FilledButton.icon(
+                  onPressed: _isGeneratingReports ? null : onGenerate,
+                  icon: _isGeneratingReports
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.summarize_outlined),
+                  label: const Text('Generate Reports'),
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -3358,6 +4250,37 @@ String _formatIsoDateTime(String? value) {
     return value;
   }
   return DateFormat('EEE, MMM d, yyyy • HH:mm').format(parsed.toLocal());
+}
+
+String _displayLabTestStatus(String status) {
+  switch (status.trim().toLowerCase()) {
+    case 'scheduled':
+      return 'Scheduled';
+    case 'in_progress':
+      return 'In Progress';
+    case 'completed':
+      return 'Completed';
+    case 'cancelled':
+    case 'canceled':
+      return 'Cancelled';
+    default:
+      return status;
+  }
+}
+
+String _formatLabTestSchedule(LabTestModel test) {
+  if (test.scheduleDate == null || test.scheduleDate!.trim().isEmpty) {
+    return '-';
+  }
+
+  final parsedDate = DateTime.tryParse('${test.scheduleDate}T00:00:00');
+  final datePart = parsedDate == null
+      ? test.scheduleDate!
+      : DateFormat('EEE, MMM d, yyyy').format(parsedDate);
+  final timePart = test.scheduleTime == null || test.scheduleTime!.isEmpty
+      ? ''
+      : ' at ${test.scheduleTime}';
+  return '$datePart$timePart';
 }
 
 class _StatusChip extends StatelessWidget {
