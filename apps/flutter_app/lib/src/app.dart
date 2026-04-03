@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'router.dart';
 
 class HnasApp extends ConsumerWidget {
@@ -18,28 +19,78 @@ class HnasApp extends ConsumerWidget {
 }
 
 ThemeData _buildTheme() {
-  const seed = Color(0xFF0B6E4F);
   final colorScheme = ColorScheme.fromSeed(
-    seedColor: seed,
+    seedColor: const Color(0xFF0B5FA5),
     brightness: Brightness.light,
+    primary: const Color(0xFF0B5FA5),
+    secondary: const Color(0xFF12A3B4),
+    surface: const Color(0xFFF8FBFF),
   );
+  final baseTextTheme = GoogleFonts.dmSansTextTheme();
 
   return ThemeData(
     useMaterial3: true,
     colorScheme: colorScheme,
-    scaffoldBackgroundColor: const Color(0xFFF4F7F6),
-    cardTheme: const CardThemeData(
+    textTheme: baseTextTheme.apply(
+      bodyColor: const Color(0xFF12263A),
+      displayColor: const Color(0xFF12263A),
+    ),
+    scaffoldBackgroundColor: const Color(0xFFF2F6FB),
+    appBarTheme: AppBarTheme(
       elevation: 0,
+      centerTitle: false,
+      backgroundColor: colorScheme.surface,
+      foregroundColor: const Color(0xFF12263A),
+      titleTextStyle: baseTextTheme.titleLarge?.copyWith(
+        color: const Color(0xFF12263A),
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+    cardTheme: const CardThemeData(
+      elevation: 1,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(16)),
+        borderRadius: BorderRadius.all(Radius.circular(18)),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(999),
+      ),
+      side: BorderSide(color: colorScheme.outlineVariant),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: colorScheme.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(
+          color: colorScheme.primary,
+          width: 1.4,
+        ),
       ),
     ),
   );

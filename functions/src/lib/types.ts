@@ -75,10 +75,36 @@ export interface Patient {
   id: EntityId;
   fullName: string;
   dateOfBirth?: DateId;
+  gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say';
+  phoneNumber?: string;
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  address?: string;
+  notes?: string;
+  riskFlags?: string[];
+  diagnosis?: string[];
+  allergies?: string[];
   timezone: string;
   active: boolean;
   primaryCaregiverUserId?: EntityId;
   insulinProfiles: InsulinProfile[];
+  createdAt: IsoDateTimeString;
+  updatedAt: IsoDateTimeString;
+}
+
+export interface HealthCheck {
+  id: EntityId;
+  patientId: EntityId;
+  dateId: DateId;
+  checkedAt: IsoDateTimeString;
+  weightKg?: number;
+  temperatureC?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  pulseBpm?: number;
+  spo2Pct?: number;
+  notes?: string;
+  recordedByUid?: EntityId;
   createdAt: IsoDateTimeString;
   updatedAt: IsoDateTimeString;
 }

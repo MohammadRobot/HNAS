@@ -272,6 +272,26 @@ final reportsProvider =
   );
 });
 
+final healthChecksProvider =
+    StreamProvider.family<List<HealthCheckModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('healthChecks')
+        .orderBy('checkedAt', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => HealthCheckModel.fromMap(doc.id, doc.data()))
+          .toList();
+    }),
+    'health checks',
+  );
+});
+
 final todayReportProvider =
     StreamProvider.family<DailyReportModel?, String>((ref, patientId) {
   final dateId = ref.watch(todayDateIdProvider);

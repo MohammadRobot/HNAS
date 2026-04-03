@@ -30,8 +30,16 @@ class PatientModel {
     required this.active,
     this.timezone,
     this.agencyId,
+    this.dateOfBirth,
+    this.gender,
+    this.phoneNumber,
+    this.emergencyContactName,
+    this.emergencyContactPhone,
+    this.address,
+    this.notes,
     this.riskFlags = const <String>[],
     this.diagnosis = const <String>[],
+    this.allergies = const <String>[],
   });
 
   final String id;
@@ -39,8 +47,16 @@ class PatientModel {
   final bool active;
   final String? timezone;
   final String? agencyId;
+  final String? dateOfBirth;
+  final String? gender;
+  final String? phoneNumber;
+  final String? emergencyContactName;
+  final String? emergencyContactPhone;
+  final String? address;
+  final String? notes;
   final List<String> riskFlags;
   final List<String> diagnosis;
+  final List<String> allergies;
 
   factory PatientModel.fromMap(String id, Map<String, dynamic> map) {
     return PatientModel(
@@ -49,8 +65,16 @@ class PatientModel {
       active: _readBool(map['active']) ?? true,
       timezone: _readString(map['timezone']),
       agencyId: _readString(map['agencyId']),
+      dateOfBirth: _readString(map['dateOfBirth']),
+      gender: _readString(map['gender']),
+      phoneNumber: _readString(map['phoneNumber']),
+      emergencyContactName: _readString(map['emergencyContactName']),
+      emergencyContactPhone: _readString(map['emergencyContactPhone']),
+      address: _readString(map['address']),
+      notes: _readString(map['notes']),
       riskFlags: _readStringList(map['riskFlags']),
       diagnosis: _normalizeDiagnosis(map['diagnosis']),
+      allergies: _readStringList(map['allergies']),
     );
   }
 }
@@ -331,6 +355,53 @@ class DailyReportModel {
       missed: _readInt(map['missed']) ?? 0,
       late: _readInt(map['late']) ?? 0,
       skipped: _readInt(map['skipped']) ?? 0,
+    );
+  }
+}
+
+class HealthCheckModel {
+  const HealthCheckModel({
+    required this.id,
+    required this.patientId,
+    required this.checkedAt,
+    this.dateId,
+    this.weightKg,
+    this.temperatureC,
+    this.bloodPressureSystolic,
+    this.bloodPressureDiastolic,
+    this.pulseBpm,
+    this.spo2Pct,
+    this.notes,
+    this.recordedByUid,
+  });
+
+  final String id;
+  final String patientId;
+  final String checkedAt;
+  final String? dateId;
+  final num? weightKg;
+  final num? temperatureC;
+  final num? bloodPressureSystolic;
+  final num? bloodPressureDiastolic;
+  final num? pulseBpm;
+  final num? spo2Pct;
+  final String? notes;
+  final String? recordedByUid;
+
+  factory HealthCheckModel.fromMap(String id, Map<String, dynamic> map) {
+    return HealthCheckModel(
+      id: id,
+      patientId: _readString(map['patientId']) ?? '',
+      checkedAt: _readString(map['checkedAt']) ?? '',
+      dateId: _readString(map['dateId']),
+      weightKg: _readNum(map['weightKg']),
+      temperatureC: _readNum(map['temperatureC']),
+      bloodPressureSystolic: _readNum(map['bloodPressureSystolic']),
+      bloodPressureDiastolic: _readNum(map['bloodPressureDiastolic']),
+      pulseBpm: _readNum(map['pulseBpm']),
+      spo2Pct: _readNum(map['spo2Pct']),
+      notes: _readString(map['notes']),
+      recordedByUid: _readString(map['recordedByUid']),
     );
   }
 }

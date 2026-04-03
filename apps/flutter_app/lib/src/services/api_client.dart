@@ -69,6 +69,23 @@ class ApiClient {
     String? timezone,
     bool active = true,
     String? dateOfBirth,
+    String? gender,
+    String? phoneNumber,
+    String? emergencyContactName,
+    String? emergencyContactPhone,
+    String? address,
+    String? notes,
+    List<String>? riskFlags,
+    List<String>? diagnosis,
+    List<String>? allergies,
+    DateTime? initialHealthCheckAt,
+    num? initialWeightKg,
+    num? initialTemperatureC,
+    num? initialBloodPressureSystolic,
+    num? initialBloodPressureDiastolic,
+    num? initialPulseBpm,
+    num? initialSpo2Pct,
+    String? initialHealthCheckNotes,
     String? agencyId,
     List<String>? assignedNurseIds,
   }) async {
@@ -82,12 +99,36 @@ class ApiClient {
 
     final normalizedTimezone = timezone?.trim();
     final normalizedDateOfBirth = dateOfBirth?.trim();
+    final normalizedGender = gender?.trim().toLowerCase();
+    final normalizedPhoneNumber = phoneNumber?.trim();
+    final normalizedEmergencyContactName = emergencyContactName?.trim();
+    final normalizedEmergencyContactPhone = emergencyContactPhone?.trim();
+    final normalizedAddress = address?.trim();
+    final normalizedNotes = notes?.trim();
+    final normalizedRiskFlags = _cleanStringList(riskFlags);
+    final normalizedDiagnosis = _cleanStringList(diagnosis);
+    final normalizedAllergies = _cleanStringList(allergies);
     final normalizedAgencyId = agencyId?.trim();
     final normalizedNurseIds = (assignedNurseIds ?? const <String>[])
         .map((id) => id.trim())
         .where((id) => id.isNotEmpty)
         .toSet()
         .toList();
+    final initialHealthCheck = <String, dynamic>{
+      if (initialWeightKg != null) 'weightKg': initialWeightKg,
+      if (initialTemperatureC != null) 'temperatureC': initialTemperatureC,
+      if (initialBloodPressureSystolic != null)
+        'bloodPressureSystolic': initialBloodPressureSystolic,
+      if (initialBloodPressureDiastolic != null)
+        'bloodPressureDiastolic': initialBloodPressureDiastolic,
+      if (initialPulseBpm != null) 'pulseBpm': initialPulseBpm,
+      if (initialSpo2Pct != null) 'spo2Pct': initialSpo2Pct,
+      if (initialHealthCheckAt != null)
+        'checkedAt': initialHealthCheckAt.toUtc().toIso8601String(),
+      if (initialHealthCheckNotes != null &&
+          initialHealthCheckNotes.trim().isNotEmpty)
+        'notes': initialHealthCheckNotes.trim(),
+    };
 
     final response = await _post('/api/patients/create', <String, dynamic>{
       'fullName': normalizedName,
@@ -96,6 +137,25 @@ class ApiClient {
       'active': active,
       if (normalizedDateOfBirth != null && normalizedDateOfBirth.isNotEmpty)
         'dateOfBirth': normalizedDateOfBirth,
+      if (normalizedGender != null && normalizedGender.isNotEmpty)
+        'gender': normalizedGender,
+      if (normalizedPhoneNumber != null && normalizedPhoneNumber.isNotEmpty)
+        'phoneNumber': normalizedPhoneNumber,
+      if (normalizedEmergencyContactName != null &&
+          normalizedEmergencyContactName.isNotEmpty)
+        'emergencyContactName': normalizedEmergencyContactName,
+      if (normalizedEmergencyContactPhone != null &&
+          normalizedEmergencyContactPhone.isNotEmpty)
+        'emergencyContactPhone': normalizedEmergencyContactPhone,
+      if (normalizedAddress != null && normalizedAddress.isNotEmpty)
+        'address': normalizedAddress,
+      if (normalizedNotes != null && normalizedNotes.isNotEmpty)
+        'notes': normalizedNotes,
+      if (normalizedRiskFlags.isNotEmpty) 'riskFlags': normalizedRiskFlags,
+      if (normalizedDiagnosis.isNotEmpty) 'diagnosis': normalizedDiagnosis,
+      if (normalizedAllergies.isNotEmpty) 'allergies': normalizedAllergies,
+      if (initialHealthCheck.isNotEmpty)
+        'initialHealthCheck': initialHealthCheck,
       if (normalizedAgencyId != null && normalizedAgencyId.isNotEmpty)
         'agencyId': normalizedAgencyId,
       if (normalizedNurseIds.isNotEmpty) 'assignedNurseIds': normalizedNurseIds,
@@ -109,6 +169,42 @@ class ApiClient {
       );
     }
     return patientId;
+  }
+
+  Future<String> createHealthCheck({
+    required String patientId,
+    DateTime? checkedAt,
+    num? weightKg,
+    num? temperatureC,
+    num? bloodPressureSystolic,
+    num? bloodPressureDiastolic,
+    num? pulseBpm,
+    num? spo2Pct,
+    String? notes,
+  }) async {
+    final body = <String, dynamic>{
+      'patientId': patientId.trim(),
+      if (checkedAt != null) 'checkedAt': checkedAt.toUtc().toIso8601String(),
+      if (weightKg != null) 'weightKg': weightKg,
+      if (temperatureC != null) 'temperatureC': temperatureC,
+      if (bloodPressureSystolic != null)
+        'bloodPressureSystolic': bloodPressureSystolic,
+      if (bloodPressureDiastolic != null)
+        'bloodPressureDiastolic': bloodPressureDiastolic,
+      if (pulseBpm != null) 'pulseBpm': pulseBpm,
+      if (spo2Pct != null) 'spo2Pct': spo2Pct,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    };
+
+    final response = await _post('/api/patients/healthChecks/create', body);
+    final healthCheckId = response['healthCheckId'];
+    if (healthCheckId is! String || healthCheckId.isEmpty) {
+      throw ApiException(
+        code: 'invalid-response',
+        message: 'API response is missing healthCheckId.',
+      );
+    }
+    return healthCheckId;
   }
 
   Future<String> createMedicine({

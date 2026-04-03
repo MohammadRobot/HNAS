@@ -6,13 +6,13 @@
   },
   "scripts": {
     "build": "npm run build:functions",
-    "build:functions": "npm --prefix functions run build",
-    "lint:functions": "npm --prefix functions run lint",
-    "serve:functions": "npm --prefix functions run serve",
-    "deploy:functions": "npm --prefix functions run deploy",
-    "install:functions": "npm --prefix functions install",
-    "build:flutter:web": "cd apps/flutter_app && flutter build web",
-    "run:flutter:web": "cd apps/flutter_app && flutter run -d chrome"
+    "build:functions": "bash ./scripts/with-env.sh npm --prefix functions run build",
+    "lint:functions": "bash ./scripts/with-env.sh npm --prefix functions run lint",
+    "serve:functions": "bash ./scripts/with-env.sh npm --prefix functions run serve",
+    "deploy:functions": "bash ./scripts/with-env.sh npm --prefix functions run deploy",
+    "install:functions": "bash ./scripts/with-env.sh npm --prefix functions install",
+    "build:flutter:web": "bash ./scripts/with-env.sh bash ./scripts/flutter-web.sh build",
+    "run:flutter:web": "bash ./scripts/with-env.sh bash ./scripts/flutter-web.sh run"
   },
   "dependencies": {
     "firebase-functions": "^4.9.0"

@@ -267,8 +267,8 @@ flutter run -d chrome --dart-define=HNAS_API_BASE_URL=http://127.0.0.1:5001/<pro
 ### Build Flutter Web
 
 ```bash
-cd apps/flutter_app
-flutter build web
+cd ~/HNAS
+npm run build:flutter:web
 ```
 
 Firebase Hosting is configured to serve the Flutter web build output from `apps/flutter_app/build/web`.
@@ -287,7 +287,11 @@ cd ~/HNAS
 cp -n .env.example .env
 ```
 
-Load env values into your current shell before running emulators or Flutter:
+NPM scripts now auto-load `.env` by default (via `scripts/with-env.sh`), so
+you usually do not need to manually source the file.
+
+If you run commands directly (outside npm scripts), load env values into your
+current shell:
 
 ```bash
 cd ~/HNAS
@@ -317,10 +321,14 @@ npm --prefix functions run seed:demo
 Terminal C: run Flutter web app against emulators
 
 ```bash
-cd ~/HNAS/apps/flutter_app
-/home/mohammadrobot/flutter-sdk/bin/flutter run -d chrome \
-  --dart-define=HNAS_FIREBASE_PROJECT_ID=demo-hnas \
-  --dart-define=HNAS_API_BASE_URL=http://127.0.0.1:5001/demo-hnas/us-central1/api
+cd ~/HNAS
+npm run run:flutter:web
+```
+
+Optional: pass extra Flutter args:
+
+```bash
+npm run run:flutter:web -- --web-port 5050
 ```
 
 Optional: enable ChatGPT-backed responses in the AI tab (Terminal A before

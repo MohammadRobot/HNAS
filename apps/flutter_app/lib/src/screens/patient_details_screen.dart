@@ -25,7 +25,7 @@ class PatientDetailsScreen extends ConsumerWidget {
     final patientAsync = ref.watch(patientProvider(patientId));
 
     return DefaultTabController(
-      length: 7,
+      length: 8,
       child: Scaffold(
         appBar: AppBar(
           title: patientAsync.when(
@@ -41,6 +41,7 @@ class PatientDetailsScreen extends ConsumerWidget {
               Tab(text: 'Procedures'),
               Tab(text: 'Insulin'),
               Tab(text: 'Checklist'),
+              Tab(text: 'Health Checks'),
               Tab(text: 'Reports'),
               Tab(text: 'AI Assistant'),
             ],
@@ -53,6 +54,7 @@ class PatientDetailsScreen extends ConsumerWidget {
             _ProceduresTab(patientId: patientId),
             _InsulinTab(patientId: patientId),
             _ChecklistTab(patientId: patientId),
+            _HealthChecksTab(patientId: patientId),
             _ReportsTab(patientId: patientId),
             _AiAssistantTab(patientId: patientId),
           ],
@@ -71,6 +73,7 @@ class _OverviewTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final patientAsync = ref.watch(patientProvider(patientId));
     final todayReportAsync = ref.watch(todayReportProvider(patientId));
+    final healthChecksAsync = ref.watch(healthChecksProvider(patientId));
 
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -121,6 +124,50 @@ class _OverviewTab extends ConsumerWidget {
                           ? 'None'
                           : patient.diagnosis.join(', '),
                     ),
+                    _KeyValue(
+                      label: 'Date of Birth',
+                      value: patient.dateOfBirth ?? '-',
+                    ),
+                    _KeyValue(
+                      label: 'Gender',
+                      value: patient.gender == null
+                          ? '-'
+                          : _displayGender(patient.gender!),
+                    ),
+                    _KeyValue(
+                      label: 'Phone',
+                      value: patient.phoneNumber ?? '-',
+                    ),
+                    _KeyValue(
+                      label: 'Emergency Contact',
+                      value: [
+                        if (patient.emergencyContactName != null)
+                          patient.emergencyContactName!,
+                        if (patient.emergencyContactPhone != null)
+                          patient.emergencyContactPhone!,
+                      ].isEmpty
+                          ? '-'
+                          : [
+                              if (patient.emergencyContactName != null)
+                                patient.emergencyContactName!,
+                              if (patient.emergencyContactPhone != null)
+                                patient.emergencyContactPhone!,
+                            ].join(' • '),
+                    ),
+                    _KeyValue(
+                      label: 'Address',
+                      value: patient.address ?? '-',
+                    ),
+                    _KeyValue(
+                      label: 'Allergies',
+                      value: patient.allergies.isEmpty
+                          ? 'None'
+                          : patient.allergies.join(', '),
+                    ),
+                    _KeyValue(
+                      label: 'Notes',
+                      value: patient.notes ?? '-',
+                    ),
                   ],
                 ),
               ),
@@ -131,6 +178,76 @@ class _OverviewTab extends ConsumerWidget {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Text('Unable to load patient: $error'),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        healthChecksAsync.when(
+          data: (checks) {
+            if (checks.isEmpty) {
+              return const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text(
+                    'No health checks yet. Use the Health Checks tab to record vitals.',
+                  ),
+                ),
+              );
+            }
+
+            final latest = checks.first;
+            final checkedAt = _formatIsoDateTime(latest.checkedAt);
+            final bloodPressure = latest.bloodPressureSystolic != null &&
+                    latest.bloodPressureDiastolic != null
+                ? '${latest.bloodPressureSystolic}/${latest.bloodPressureDiastolic}'
+                : '-';
+
+            return Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      'Latest Health Check',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    _KeyValue(label: 'Checked At', value: checkedAt),
+                    _KeyValue(
+                      label: 'Weight',
+                      value: latest.weightKg == null
+                          ? '-'
+                          : '${latest.weightKg} kg',
+                    ),
+                    _KeyValue(
+                      label: 'Temperature',
+                      value: latest.temperatureC == null
+                          ? '-'
+                          : '${latest.temperatureC} C',
+                    ),
+                    _KeyValue(label: 'Blood Pressure', value: bloodPressure),
+                    _KeyValue(
+                      label: 'Pulse',
+                      value: latest.pulseBpm == null
+                          ? '-'
+                          : '${latest.pulseBpm} bpm',
+                    ),
+                    _KeyValue(
+                      label: 'SpO2',
+                      value:
+                          latest.spo2Pct == null ? '-' : '${latest.spo2Pct}%',
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+          loading: () => const _LoadingCard(),
+          error: (error, _) => Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text('Unable to load health checks: $error'),
             ),
           ),
         ),
@@ -2048,6 +2165,540 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
   }
 }
 
+class _HealthCheckDraft {
+  const _HealthCheckDraft({
+    required this.checkedAt,
+    this.weightKg,
+    this.temperatureC,
+    this.bloodPressureSystolic,
+    this.bloodPressureDiastolic,
+    this.pulseBpm,
+    this.spo2Pct,
+    this.notes,
+  });
+
+  final DateTime checkedAt;
+  final num? weightKg;
+  final num? temperatureC;
+  final num? bloodPressureSystolic;
+  final num? bloodPressureDiastolic;
+  final num? pulseBpm;
+  final num? spo2Pct;
+  final String? notes;
+}
+
+class _HealthChecksTab extends ConsumerWidget {
+  const _HealthChecksTab({required this.patientId});
+
+  final String patientId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final role = ref.watch(userProfileProvider).value?.role;
+    final canRecord =
+        role == 'admin' || role == 'supervisor' || role == 'nurse';
+    final checksAsync = ref.watch(healthChecksProvider(patientId));
+
+    Future<void> createHealthCheck() async {
+      final draft = await showDialog<_HealthCheckDraft>(
+        context: context,
+        builder: (_) => const _HealthCheckDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).createHealthCheck(
+              patientId: patientId,
+              checkedAt: draft.checkedAt,
+              weightKg: draft.weightKg,
+              temperatureC: draft.temperatureC,
+              bloodPressureSystolic: draft.bloodPressureSystolic,
+              bloodPressureDiastolic: draft.bloodPressureDiastolic,
+              pulseBpm: draft.pulseBpm,
+              spo2Pct: draft.spo2Pct,
+              notes: draft.notes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Health check recorded.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to record health check: $error')),
+        );
+      }
+    }
+
+    return checksAsync.when(
+      data: (checks) {
+        return ListView(
+          padding: const EdgeInsets.all(16),
+          children: <Widget>[
+            if (canRecord)
+              _TabActionHeader(
+                label: 'Regular Health Checks',
+                actionLabel: 'Add Health Check',
+                onPressed: createHealthCheck,
+              ),
+            if (checks.isEmpty)
+              const Card(
+                child: Padding(
+                  padding: EdgeInsets.all(16),
+                  child: Text('No health checks recorded yet.'),
+                ),
+              ),
+            ...checks.map((check) {
+              final bp = check.bloodPressureSystolic != null &&
+                      check.bloodPressureDiastolic != null
+                  ? '${check.bloodPressureSystolic}/${check.bloodPressureDiastolic}'
+                  : '-';
+              final checkedAt = _formatIsoDateTime(check.checkedAt);
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            Expanded(
+                              child: Text(
+                                checkedAt,
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                            ),
+                            if (check.recordedByUid != null)
+                              Chip(
+                                label: Text(
+                                  'by ${check.recordedByUid}',
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: <Widget>[
+                            _MetricChip(
+                              label: 'Weight',
+                              value: check.weightKg == null
+                                  ? '-'
+                                  : '${check.weightKg} kg',
+                            ),
+                            _MetricChip(
+                              label: 'Temp',
+                              value: check.temperatureC == null
+                                  ? '-'
+                                  : '${check.temperatureC} C',
+                            ),
+                            _MetricChip(label: 'BP', value: bp),
+                            _MetricChip(
+                              label: 'Pulse',
+                              value: check.pulseBpm == null
+                                  ? '-'
+                                  : '${check.pulseBpm} bpm',
+                            ),
+                            _MetricChip(
+                              label: 'SpO2',
+                              value: check.spo2Pct == null
+                                  ? '-'
+                                  : '${check.spo2Pct}%',
+                            ),
+                          ],
+                        ),
+                        if (check.notes != null &&
+                            check.notes!.isNotEmpty) ...<Widget>[
+                          const SizedBox(height: 8),
+                          Text(
+                            check.notes!,
+                            style: Theme.of(context).textTheme.bodyMedium,
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }),
+          ],
+        );
+      },
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) =>
+          Center(child: Text('Unable to load health checks: $error')),
+    );
+  }
+}
+
+class _HealthCheckDialog extends StatefulWidget {
+  const _HealthCheckDialog();
+
+  @override
+  State<_HealthCheckDialog> createState() => _HealthCheckDialogState();
+}
+
+class _HealthCheckDialogState extends State<_HealthCheckDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late DateTime _checkedAt;
+  late final TextEditingController _weightController;
+  late final TextEditingController _temperatureController;
+  late final TextEditingController _systolicController;
+  late final TextEditingController _diastolicController;
+  late final TextEditingController _pulseController;
+  late final TextEditingController _spo2Controller;
+  late final TextEditingController _notesController;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkedAt = DateTime.now();
+    _weightController = TextEditingController();
+    _temperatureController = TextEditingController();
+    _systolicController = TextEditingController();
+    _diastolicController = TextEditingController();
+    _pulseController = TextEditingController();
+    _spo2Controller = TextEditingController();
+    _notesController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _weightController.dispose();
+    _temperatureController.dispose();
+    _systolicController.dispose();
+    _diastolicController.dispose();
+    _pulseController.dispose();
+    _spo2Controller.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Record Health Check'),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  'Checked at ${DateFormat('yyyy-MM-dd HH:mm').format(_checkedAt)}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    OutlinedButton.icon(
+                      onPressed: _selectDate,
+                      icon: const Icon(Icons.event_outlined),
+                      label: const Text('Date'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _selectTime,
+                      icon: const Icon(Icons.schedule_outlined),
+                      label: const Text('Time'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextFormField(
+                        controller: _weightController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'Weight (kg)'),
+                        validator: (value) => _validateNumber(value, min: 0.5),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _temperatureController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'Temperature (C)'),
+                        validator: (value) =>
+                            _validateNumber(value, min: 25, max: 45),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextFormField(
+                        controller: _systolicController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'BP Systolic'),
+                        validator: (value) {
+                          final diastolic = _diastolicController.text.trim();
+                          final raw = (value ?? '').trim();
+                          if (raw.isEmpty && diastolic.isEmpty) {
+                            return null;
+                          }
+                          if (raw.isEmpty || diastolic.isEmpty) {
+                            return 'Enter both BP values.';
+                          }
+                          return _validateNumber(raw, min: 40, max: 300);
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _diastolicController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'BP Diastolic'),
+                        validator: (value) {
+                          final systolic = _systolicController.text.trim();
+                          final raw = (value ?? '').trim();
+                          if (raw.isEmpty && systolic.isEmpty) {
+                            return null;
+                          }
+                          if (raw.isEmpty || systolic.isEmpty) {
+                            return 'Enter both BP values.';
+                          }
+                          return _validateNumber(raw, min: 30, max: 200);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: TextFormField(
+                        controller: _pulseController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'Pulse (bpm)'),
+                        validator: (value) =>
+                            _validateNumber(value, min: 20, max: 250),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: _spo2Controller,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: false,
+                        ),
+                        decoration:
+                            const InputDecoration(labelText: 'SpO2 (%)'),
+                        validator: (value) =>
+                            _validateNumber(value, min: 40, max: 100),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  controller: _notesController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _selectDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _checkedAt,
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now().add(const Duration(days: 3650)),
+      helpText: 'Select Check Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _checkedAt = DateTime(
+        picked.year,
+        picked.month,
+        picked.day,
+        _checkedAt.hour,
+        _checkedAt.minute,
+      );
+    });
+  }
+
+  Future<void> _selectTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_checkedAt),
+      helpText: 'Select Check Time',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _checkedAt = DateTime(
+        _checkedAt.year,
+        _checkedAt.month,
+        _checkedAt.day,
+        picked.hour,
+        picked.minute,
+      );
+    });
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final weightKg = _readOptionalNum(_weightController.text);
+    final temperatureC = _readOptionalNum(_temperatureController.text);
+    final bloodPressureSystolic = _readOptionalNum(_systolicController.text);
+    final bloodPressureDiastolic = _readOptionalNum(_diastolicController.text);
+    final pulseBpm = _readOptionalNum(_pulseController.text);
+    final spo2Pct = _readOptionalNum(_spo2Controller.text);
+
+    if (bloodPressureSystolic != null &&
+        bloodPressureDiastolic != null &&
+        bloodPressureSystolic <= bloodPressureDiastolic) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content:
+              Text('Blood pressure systolic must be higher than diastolic.'),
+        ),
+      );
+      return;
+    }
+
+    if (weightKg == null &&
+        temperatureC == null &&
+        bloodPressureSystolic == null &&
+        bloodPressureDiastolic == null &&
+        pulseBpm == null &&
+        spo2Pct == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter at least one health metric.')),
+      );
+      return;
+    }
+
+    final notes = _notesController.text.trim();
+    Navigator.of(context).pop(
+      _HealthCheckDraft(
+        checkedAt: _checkedAt,
+        weightKg: weightKg,
+        temperatureC: temperatureC,
+        bloodPressureSystolic: bloodPressureSystolic,
+        bloodPressureDiastolic: bloodPressureDiastolic,
+        pulseBpm: pulseBpm,
+        spo2Pct: spo2Pct,
+        notes: notes.isEmpty ? null : notes,
+      ),
+    );
+  }
+
+  num? _readOptionalNum(String input) {
+    final raw = input.trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+    return num.tryParse(raw);
+  }
+
+  String? _validateNumber(String? value, {required num min, num? max}) {
+    final raw = (value ?? '').trim();
+    if (raw.isEmpty) {
+      return null;
+    }
+
+    final parsed = num.tryParse(raw);
+    if (parsed == null) {
+      return 'Enter a valid number.';
+    }
+    if (parsed < min || (max != null && parsed > max)) {
+      if (max == null) {
+        return 'Must be at least $min.';
+      }
+      return '$min - $max only.';
+    }
+    return null;
+  }
+}
+
+class _MetricChip extends StatelessWidget {
+  const _MetricChip({
+    required this.label,
+    required this.value,
+  });
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text('$label: $value'),
+    );
+  }
+}
+
 class _ReportsTab extends ConsumerStatefulWidget {
   const _ReportsTab({required this.patientId});
 
@@ -2680,6 +3331,33 @@ class _WeeklyRow extends StatelessWidget {
       ],
     );
   }
+}
+
+String _displayGender(String gender) {
+  switch (gender.trim().toLowerCase()) {
+    case 'male':
+      return 'Male';
+    case 'female':
+      return 'Female';
+    case 'other':
+      return 'Other';
+    case 'prefer_not_to_say':
+      return 'Prefer not to say';
+    default:
+      return gender;
+  }
+}
+
+String _formatIsoDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) {
+    return '-';
+  }
+
+  final parsed = DateTime.tryParse(value.trim());
+  if (parsed == null) {
+    return value;
+  }
+  return DateFormat('EEE, MMM d, yyyy • HH:mm').format(parsed.toLocal());
 }
 
 class _StatusChip extends StatelessWidget {

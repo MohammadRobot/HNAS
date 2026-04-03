@@ -145,6 +145,13 @@ const POST_FILTER_PATTERNS: RegExp[] = [
   /\bi\s+prescribe\b/i,
 ];
 
+const ALLOWED_PATIENT_GENDERS = new Set<string>([
+  'male',
+  'female',
+  'other',
+  'prefer_not_to_say',
+]);
+
 const app = express();
 
 app.use(express.json({limit: '1mb'}));
@@ -196,6 +203,19 @@ app.post('/api/patients/create', asyncRoute(async (req, res) => {
   if (dateOfBirth) {
     assertDateId(dateOfBirth, 'dateOfBirth');
   }
+  const gender = readOptionalGender(body, 'gender');
+  const phoneNumber = readOptionalString(body, 'phoneNumber');
+  const emergencyContactName = readOptionalString(body, 'emergencyContactName');
+  const emergencyContactPhone = readOptionalString(body, 'emergencyContactPhone');
+  const address = readOptionalString(body, 'address');
+  const notes = readOptionalString(body, 'notes');
+  const riskFlags = readOptionalStringArray(body, 'riskFlags');
+  const diagnosis = readOptionalStringArray(body, 'diagnosis');
+  const allergies = readOptionalStringArray(body, 'allergies');
+  const initialHealthCheckRaw = readOptionalObject(body, 'initialHealthCheck');
+  const initialHealthCheck = initialHealthCheckRaw ?
+    parseHealthCheckPayload(initialHealthCheckRaw, 'initialHealthCheck') :
+    undefined;
 
   const requestedAgencyId = readOptionalString(body, 'agencyId');
   const agencyId = resolveAgencyForWrite(context.user, requestedAgencyId);
@@ -219,8 +239,43 @@ app.post('/api/patients/create', asyncRoute(async (req, res) => {
   if (dateOfBirth) {
     patientData.dateOfBirth = dateOfBirth;
   }
+  if (gender) {
+    patientData.gender = gender;
+  }
+  if (phoneNumber) {
+    patientData.phoneNumber = phoneNumber;
+  }
+  if (emergencyContactName) {
+    patientData.emergencyContactName = emergencyContactName;
+  }
+  if (emergencyContactPhone) {
+    patientData.emergencyContactPhone = emergencyContactPhone;
+  }
+  if (address) {
+    patientData.address = address;
+  }
+  if (notes) {
+    patientData.notes = notes;
+  }
+  if (riskFlags && riskFlags.length > 0) {
+    patientData.riskFlags = riskFlags;
+  }
+  if (diagnosis && diagnosis.length > 0) {
+    patientData.diagnosis = diagnosis;
+  }
+  if (allergies && allergies.length > 0) {
+    patientData.allergies = allergies;
+  }
 
   await patientRef.set(patientData);
+  if (initialHealthCheck) {
+    await createHealthCheckRecord({
+      patientRef,
+      patientId: patientRef.id,
+      actorUid: context.uid,
+      payload: initialHealthCheck,
+    });
+  }
 
   res.status(201).json({
     ok: true,
@@ -248,11 +303,38 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
     assertDateId(dateOfBirth, 'dateOfBirth');
     patch.dateOfBirth = dateOfBirth;
   }
+  if (hasOwn(body, 'gender')) {
+    patch.gender = readRequiredGender(body, 'gender');
+  }
+  if (hasOwn(body, 'phoneNumber')) {
+    patch.phoneNumber = readRequiredString(body, 'phoneNumber');
+  }
+  if (hasOwn(body, 'emergencyContactName')) {
+    patch.emergencyContactName = readRequiredString(body, 'emergencyContactName');
+  }
+  if (hasOwn(body, 'emergencyContactPhone')) {
+    patch.emergencyContactPhone = readRequiredString(body, 'emergencyContactPhone');
+  }
+  if (hasOwn(body, 'address')) {
+    patch.address = readRequiredString(body, 'address');
+  }
+  if (hasOwn(body, 'notes')) {
+    patch.notes = readRequiredString(body, 'notes');
+  }
   if (hasOwn(body, 'active')) {
     patch.active = readRequiredBoolean(body, 'active');
   }
   if (hasOwn(body, 'assignedNurseIds')) {
     patch.assignedNurseIds = readRequiredStringArray(body, 'assignedNurseIds');
+  }
+  if (hasOwn(body, 'riskFlags')) {
+    patch.riskFlags = readRequiredStringArray(body, 'riskFlags');
+  }
+  if (hasOwn(body, 'diagnosis')) {
+    patch.diagnosis = readRequiredStringArray(body, 'diagnosis');
+  }
+  if (hasOwn(body, 'allergies')) {
+    patch.allergies = readRequiredStringArray(body, 'allergies');
   }
   if (hasOwn(body, 'insulinProfiles')) {
     patch.insulinProfiles = readRequiredArray(body, 'insulinProfiles');
@@ -272,6 +354,30 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
   res.status(200).json({
     ok: true,
     patientId,
+  });
+}));
+
+app.post('/api/patients/healthChecks/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const payload = parseHealthCheckPayload(body, 'body');
+  const patientRef = firestore.collection('patients').doc(patientId);
+  const healthCheckRef = await createHealthCheckRecord({
+    patientRef,
+    patientId,
+    actorUid: context.uid,
+    payload,
+  });
+
+  res.status(201).json({
+    ok: true,
+    patientId,
+    healthCheckId: healthCheckRef.id,
   });
 }));
 
@@ -2329,6 +2435,26 @@ function readOptionalString(obj: UnknownRecord, key: string): string | undefined
   return value.trim();
 }
 
+function readRequiredGender(obj: UnknownRecord, key: string): string {
+  const value = readRequiredString(obj, key).toLowerCase();
+  if (!ALLOWED_PATIENT_GENDERS.has(value)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(ALLOWED_PATIENT_GENDERS).join(', ')}.`,
+    );
+  }
+  return value;
+}
+
+function readOptionalGender(obj: UnknownRecord, key: string): string | undefined {
+  const value = obj[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  return readRequiredGender(obj, key);
+}
+
 function readRequiredBoolean(obj: UnknownRecord, key: string): boolean {
   const value = obj[key];
   if (typeof value !== 'boolean') {
@@ -2376,4 +2502,160 @@ function asOptionalRecord(value: unknown): UnknownRecord | undefined {
 
 function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+interface HealthCheckPayload {
+  checkedAt: string;
+  weightKg?: number;
+  temperatureC?: number;
+  bloodPressureSystolic?: number;
+  bloodPressureDiastolic?: number;
+  pulseBpm?: number;
+  spo2Pct?: number;
+  notes?: string;
+}
+
+function parseHealthCheckPayload(
+    obj: UnknownRecord,
+    rootFieldName: string,
+): HealthCheckPayload {
+  const checkedAtRaw = readOptionalString(obj, 'checkedAt');
+  const checkedAtDate = checkedAtRaw ? new Date(checkedAtRaw) : new Date();
+  if (Number.isNaN(checkedAtDate.getTime())) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${rootFieldName}.checkedAt must be a valid ISO date-time string.`,
+    );
+  }
+
+  const weightKg = readOptionalNumber(obj, 'weightKg');
+  const temperatureC = readOptionalNumber(obj, 'temperatureC');
+  const bloodPressureSystolic = readOptionalNumber(obj, 'bloodPressureSystolic');
+  const bloodPressureDiastolic = readOptionalNumber(obj, 'bloodPressureDiastolic');
+  const pulseBpm = readOptionalNumber(obj, 'pulseBpm');
+  const spo2Pct = readOptionalNumber(obj, 'spo2Pct');
+  const notes = readOptionalString(obj, 'notes');
+
+  if (
+    weightKg === undefined &&
+    temperatureC === undefined &&
+    bloodPressureSystolic === undefined &&
+    bloodPressureDiastolic === undefined &&
+    pulseBpm === undefined &&
+    spo2Pct === undefined
+  ) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${rootFieldName} must include at least one measurement.`,
+    );
+  }
+
+  if (weightKg !== undefined) {
+    assertNumberRange(weightKg, `${rootFieldName}.weightKg`, 0.5, 500);
+  }
+  if (temperatureC !== undefined) {
+    assertNumberRange(temperatureC, `${rootFieldName}.temperatureC`, 25, 45);
+  }
+  if (bloodPressureSystolic !== undefined) {
+    assertNumberRange(
+        bloodPressureSystolic,
+        `${rootFieldName}.bloodPressureSystolic`,
+        40,
+        300,
+    );
+  }
+  if (bloodPressureDiastolic !== undefined) {
+    assertNumberRange(
+        bloodPressureDiastolic,
+        `${rootFieldName}.bloodPressureDiastolic`,
+        30,
+        200,
+    );
+  }
+  if (
+    bloodPressureSystolic !== undefined &&
+    bloodPressureDiastolic !== undefined &&
+    bloodPressureSystolic <= bloodPressureDiastolic
+  ) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${rootFieldName} blood pressure systolic must be greater than diastolic.`,
+    );
+  }
+  if (pulseBpm !== undefined) {
+    assertNumberRange(pulseBpm, `${rootFieldName}.pulseBpm`, 20, 250);
+  }
+  if (spo2Pct !== undefined) {
+    assertNumberRange(spo2Pct, `${rootFieldName}.spo2Pct`, 40, 100);
+  }
+
+  return {
+    checkedAt: checkedAtDate.toISOString(),
+    weightKg,
+    temperatureC,
+    bloodPressureSystolic,
+    bloodPressureDiastolic,
+    pulseBpm,
+    spo2Pct,
+    notes,
+  };
+}
+
+function assertNumberRange(value: number, fieldName: string, min: number, max: number): void {
+  if (value < min || value > max) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${fieldName} must be between ${min} and ${max}.`,
+    );
+  }
+}
+
+async function createHealthCheckRecord(input: {
+  patientRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
+  patientId: string;
+  actorUid: string;
+  payload: HealthCheckPayload;
+}): Promise<FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>> {
+  await assertDocumentExists(input.patientRef, `Patient "${input.patientId}" not found.`);
+
+  const nowIso = new Date().toISOString();
+  const healthCheckRef = input.patientRef.collection('healthChecks').doc();
+  const record: UnknownRecord = {
+    id: healthCheckRef.id,
+    patientId: input.patientId,
+    checkedAt: input.payload.checkedAt,
+    dateId: toDateId(input.payload.checkedAt),
+    recordedByUid: input.actorUid,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (input.payload.weightKg !== undefined) {
+    record.weightKg = input.payload.weightKg;
+  }
+  if (input.payload.temperatureC !== undefined) {
+    record.temperatureC = input.payload.temperatureC;
+  }
+  if (input.payload.bloodPressureSystolic !== undefined) {
+    record.bloodPressureSystolic = input.payload.bloodPressureSystolic;
+  }
+  if (input.payload.bloodPressureDiastolic !== undefined) {
+    record.bloodPressureDiastolic = input.payload.bloodPressureDiastolic;
+  }
+  if (input.payload.pulseBpm !== undefined) {
+    record.pulseBpm = input.payload.pulseBpm;
+  }
+  if (input.payload.spo2Pct !== undefined) {
+    record.spo2Pct = input.payload.spo2Pct;
+  }
+  if (input.payload.notes) {
+    record.notes = input.payload.notes;
+  }
+
+  await healthCheckRef.set(record);
+  return healthCheckRef;
 }
