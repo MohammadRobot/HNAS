@@ -18,10 +18,10 @@ HNAS is centered around a daily care workflow:
 
 ## Features
 
-- Firebase Auth login for staff users
+- Firebase Auth login for staff users (Email/Password + Google on web)
 - role-aware patient access for admins, supervisors, and nurses
 - dashboard with patient list and same-day counts
-- patient details with tabs for overview, medicines, procedures, insulin, checklist, reports, and AI assistant
+- patient details with tabs for overview, medications, procedures, lab tests, checklist, reports, and AI assistant
 - deterministic rapid insulin preview logic in the Flutter app
 - HTTPS API for task updates and AI requests
 - Firestore streams for patient, checklist, and report reads
@@ -143,6 +143,7 @@ Keep the Firebase `projectId` because you will use it in CLI commands and local 
 - go to `Build` -> `Authentication`
 - click `Get started`
 - enable the `Email/Password` sign-in provider
+- enable the `Google` sign-in provider if you want Google login on the web app
 
 This project uses Firebase Auth for staff login.
 
@@ -187,7 +188,7 @@ firebase login
 From the repository root:
 
 ```bash
-cd c:\Users\speed\vs\HNAS\hnas
+cd ~/HNAS
 firebase use --add
 ```
 
@@ -290,6 +291,15 @@ cp -n .env.example .env
 NPM scripts now auto-load `.env` by default (via `scripts/with-env.sh`), so
 you usually do not need to manually source the file.
 
+`npm run build:flutter:web` also injects these web Firebase values from `.env`
+into `--dart-define` at build time:
+
+- `HNAS_FIREBASE_API_KEY`
+- `HNAS_FIREBASE_APP_ID`
+- `HNAS_FIREBASE_MESSAGING_SENDER_ID`
+- `HNAS_FIREBASE_PROJECT_ID`
+- `HNAS_API_BASE_URL`
+
 If you run commands directly (outside npm scripts), load env values into your
 current shell:
 
@@ -344,6 +354,37 @@ export OPENAI_MODEL=gpt-4o-mini
 
 If OpenAI config is not set, the backend uses template/deterministic fallback
 responses.
+
+## Production Checklist (Verified April 4, 2026)
+
+1. Set production values in `.env`:
+```bash
+HNAS_API_BASE_URL=https://us-central1-<project-id>.cloudfunctions.net/api
+HNAS_FIREBASE_PROJECT_ID=<project-id>
+HNAS_USE_FIREBASE_EMULATORS=false
+HNAS_FIREBASE_API_KEY=<web-api-key>
+HNAS_FIREBASE_APP_ID=<web-app-id>
+HNAS_FIREBASE_MESSAGING_SENDER_ID=<sender-id>
+```
+2. Build and deploy:
+```bash
+cd ~/HNAS
+npm run build:flutter:web
+firebase deploy --only hosting,functions,firestore:rules,firestore:indexes
+```
+3. If only `onTaskUpdate` fails during first Eventarc setup, retry:
+```bash
+firebase deploy --only functions:onTaskUpdate
+```
+4. Create staff users in Firebase Auth and create matching Firestore user docs:
+`/users/{uid}` with `role`, `agencyId`, and `displayName`.
+5. Patient visibility rules:
+- `admin` and `supervisor` can read patients in the same `agencyId`
+- `nurse` can read only patients where their uid is in `assignedNurseIds`
+6. If dashboard shows `permission-denied`, verify:
+- `/users/{uid}` exists for the signed-in account
+- user `role` is `admin`, `supervisor`, or `nurse`
+- patient `agencyId` and/or `assignedNurseIds` are set correctly
 
 Demo login credentials:
 

@@ -23,6 +23,32 @@ service cloud.firestore {
         currentUser().role in roles;
     }
 
+    function patientPath(patientId) {
+      return /databases/$(database)/documents/patients/$(patientId);
+    }
+
+    function canAccessPatientData(patientData) {
+      return isAuthenticated() &&
+        (
+          (
+            hasRole(['nurse']) &&
+            patientData.assignedNurseIds is list &&
+            request.auth.uid in patientData.assignedNurseIds
+          ) ||
+          (
+            hasRole(['admin', 'supervisor']) &&
+            currentUser().agencyId is string &&
+            patientData.agencyId is string &&
+            patientData.agencyId == currentUser().agencyId
+          )
+        );
+    }
+
+    function canAccessPatientById(patientId) {
+      return exists(patientPath(patientId)) &&
+        canAccessPatientData(get(patientPath(patientId)).data);
+    }
+
     function canReadAiQaLog(logData) {
       return isAuthenticated() &&
         (
@@ -35,6 +61,12 @@ service cloud.firestore {
         );
     }
 
+    function canReadTopLevelAiQaLog(logData) {
+      return canReadAiQaLog(logData) &&
+        logData.patientId is string &&
+        canAccessPatientById(logData.patientId);
+    }
+
     match /users/{uid} {
       allow read: if isAuthenticated() &&
         (
@@ -45,16 +77,18 @@ service cloud.firestore {
     }
 
     match /patients/{patientId} {
-      allow read: if isAuthenticated();
+      // Use resource.data for patient document reads so list queries (dashboard)
+      // can be authorized deterministically by Firestore Rules.
+      allow read: if canAccessPatientData(resource.data);
       allow write: if false;
 
       match /aiQaLogs/{logId} {
-        allow read: if canReadAiQaLog(resource.data);
+        allow read: if canAccessPatientById(patientId) && canReadAiQaLog(resource.data);
         allow write: if false;
       }
 
       match /{subcollection}/{docId=**} {
-        allow read: if subcollection != 'aiQaLogs' && isAuthenticated();
+        allow read: if subcollection != 'aiQaLogs' && canAccessPatientById(patientId);
         allow write: if false;
       }
     }
@@ -65,7 +99,7 @@ service cloud.firestore {
     }
 
     match /aiQaLogs/{logId} {
-      allow read: if canReadAiQaLog(resource.data);
+      allow read: if canReadTopLevelAiQaLog(resource.data);
       allow write: if false;
     }
 

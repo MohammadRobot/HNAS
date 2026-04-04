@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -52,6 +53,47 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (_) {
       setState(() {
         _errorMessage = 'Unable to sign in.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final provider = GoogleAuthProvider()
+        ..setCustomParameters(<String, String>{'prompt': 'select_account'});
+
+      if (!kIsWeb) {
+        throw FirebaseAuthException(
+          code: 'operation-not-supported',
+          message: 'Google sign-in is available on web for this app build.',
+        );
+      }
+
+      await FirebaseAuth.instance
+          .signInWithPopup(provider)
+          .timeout(const Duration(seconds: 12));
+    } on TimeoutException {
+      setState(() {
+        _errorMessage = 'Google sign-in timed out. Please try again.';
+      });
+    } on FirebaseAuthException catch (error) {
+      setState(() {
+        _errorMessage = error.message ?? 'Unable to sign in with Google.';
+      });
+    } catch (_) {
+      setState(() {
+        _errorMessage = 'Unable to sign in with Google.';
       });
     } finally {
       if (mounted) {
@@ -147,6 +189,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             )
                           : const Icon(Icons.login_rounded),
                       label: Text(_loading ? 'Signing in...' : 'Sign in'),
+                    ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : _signInWithGoogle,
+                      icon: const Icon(Icons.account_circle_outlined),
+                      label: const Text('Sign in with Google'),
                     ),
                   ],
                 ),

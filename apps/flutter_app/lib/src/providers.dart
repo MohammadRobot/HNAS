@@ -414,9 +414,12 @@ final dashboardCountsProvider = StreamProvider<DashboardCounts>((ref) {
 });
 
 Stream<T> _withStreamTimeout<T>(Stream<T> stream, String label) {
+  const useFirebaseEmulators =
+      bool.fromEnvironment('HNAS_USE_FIREBASE_EMULATORS', defaultValue: true);
+
   // Work around a Firestore Web SDK assertion crash seen with wrapped
   // watch streams while connected to the local emulator.
-  if (kIsWeb) {
+  if (kIsWeb && useFirebaseEmulators) {
     return stream;
   }
 
