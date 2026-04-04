@@ -34,6 +34,7 @@ class DashboardScreen extends ConsumerWidget {
     final profile = profileAsync.value;
     final role = profile?.role ?? 'unknown';
     final canManagePatients = role == 'admin' || role == 'supervisor';
+    final canManageUsers = role == 'admin' || role == 'supervisor';
 
     void refreshDashboardData() {
       ref.invalidate(userProfileProvider);
@@ -218,6 +219,12 @@ class DashboardScreen extends ConsumerWidget {
               onPressed: openCreatePatientDialog,
               icon: const Icon(Icons.person_add_alt_1_rounded),
             ),
+          if (canManageUsers)
+            IconButton(
+              tooltip: 'Manage users',
+              onPressed: () => context.push('/users'),
+              icon: const Icon(Icons.manage_accounts_outlined),
+            ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: refreshDashboardData,
@@ -237,6 +244,8 @@ class DashboardScreen extends ConsumerWidget {
             role: role,
             canManagePatients: canManagePatients,
             onAddPatient: openCreatePatientDialog,
+            canManageUsers: canManageUsers,
+            onManageUsers: () => context.push('/users'),
           ),
           const SizedBox(height: 12),
           Card(
@@ -272,11 +281,15 @@ class _DashboardHero extends StatelessWidget {
     required this.role,
     required this.canManagePatients,
     required this.onAddPatient,
+    required this.canManageUsers,
+    required this.onManageUsers,
   });
 
   final String role;
   final bool canManagePatients;
   final VoidCallback onAddPatient;
+  final bool canManageUsers;
+  final VoidCallback onManageUsers;
 
   @override
   Widget build(BuildContext context) {
@@ -312,16 +325,34 @@ class _DashboardHero extends StatelessWidget {
                 ),
           ),
           const SizedBox(height: 14),
-          if (canManagePatients)
-            FilledButton.icon(
-              style: FilledButton.styleFrom(
-                backgroundColor: colorScheme.onPrimary,
-                foregroundColor: colorScheme.primary,
-              ),
-              onPressed: onAddPatient,
-              icon: const Icon(Icons.person_add_alt_1_rounded),
-              label: const Text('New Patient Intake'),
-            ),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: <Widget>[
+              if (canManagePatients)
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: colorScheme.onPrimary,
+                    foregroundColor: colorScheme.primary,
+                  ),
+                  onPressed: onAddPatient,
+                  icon: const Icon(Icons.person_add_alt_1_rounded),
+                  label: const Text('New Patient Intake'),
+                ),
+              if (canManageUsers)
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colorScheme.onPrimary,
+                    side: BorderSide(
+                      color: colorScheme.onPrimary.withValues(alpha: 0.65),
+                    ),
+                  ),
+                  onPressed: onManageUsers,
+                  icon: const Icon(Icons.manage_accounts_outlined),
+                  label: const Text('Manage Users'),
+                ),
+            ],
+          ),
         ],
       ),
     );

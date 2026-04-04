@@ -108,6 +108,87 @@ class ApiClient {
     );
   }
 
+  Future<List<ManagedUserModel>> listUsers({
+    String? agencyId,
+    String? role,
+  }) async {
+    final response = await _post('/api/users/list', <String, dynamic>{
+      if (agencyId != null && agencyId.trim().isNotEmpty)
+        'agencyId': agencyId.trim(),
+      if (role != null && role.trim().isNotEmpty)
+        'role': role.trim().toLowerCase(),
+    });
+
+    final usersRaw = response['users'];
+    if (usersRaw is! List) {
+      return const <ManagedUserModel>[];
+    }
+
+    return usersRaw
+        .whereType<Map>()
+        .map(
+          (entry) => ManagedUserModel.fromMap(
+            entry.cast<String, dynamic>(),
+          ),
+        )
+        .toList();
+  }
+
+  Future<String> createUser({
+    required String email,
+    required String password,
+    required String displayName,
+    required String role,
+    String? agencyId,
+    bool disabled = false,
+  }) async {
+    final normalizedEmail = email.trim().toLowerCase();
+    final normalizedDisplayName = displayName.trim();
+    final normalizedRole = role.trim().toLowerCase();
+    final normalizedAgencyId = agencyId?.trim();
+
+    final response = await _post('/api/users/create', <String, dynamic>{
+      'email': normalizedEmail,
+      'password': password,
+      'displayName': normalizedDisplayName,
+      'role': normalizedRole,
+      if (normalizedAgencyId != null && normalizedAgencyId.isNotEmpty)
+        'agencyId': normalizedAgencyId,
+      'disabled': disabled,
+    });
+
+    final uid = response['uid'];
+    if (uid is! String || uid.isEmpty) {
+      throw ApiException(
+        code: 'invalid-response',
+        message: 'API response is missing uid.',
+      );
+    }
+    return uid;
+  }
+
+  Future<void> updateUser({
+    required String uid,
+    String? email,
+    String? password,
+    String? displayName,
+    String? role,
+    String? agencyId,
+    bool? disabled,
+  }) async {
+    final body = <String, dynamic>{
+      'uid': uid.trim(),
+      if (email != null) 'email': email.trim().toLowerCase(),
+      if (password != null) 'password': password,
+      if (displayName != null) 'displayName': displayName.trim(),
+      if (role != null) 'role': role.trim().toLowerCase(),
+      if (agencyId != null) 'agencyId': agencyId.trim(),
+      if (disabled != null) 'disabled': disabled,
+    };
+
+    await _post('/api/users/update', body);
+  }
+
   Future<String> createPatient({
     required String fullName,
     String? timezone,
@@ -546,6 +627,30 @@ class ApiClient {
 
     final response = await _post('/api/ai/ask', body);
     return AiAskResponseModel.fromJson(response);
+  }
+
+  Future<List<AiChatLogEntryModel>> listAiLogs({
+    required String patientId,
+    int limit = 50,
+  }) async {
+    final boundedLimit = limit.clamp(1, 200).toInt();
+    final response = await _post('/api/ai/logs', <String, dynamic>{
+      'patientId': patientId.trim(),
+      'limit': boundedLimit,
+    });
+
+    final logsRaw = response['logs'];
+    if (logsRaw is! List) {
+      return const <AiChatLogEntryModel>[];
+    }
+
+    return logsRaw
+        .whereType<Map>()
+        .map(
+          (entry) =>
+              AiChatLogEntryModel.fromJson(entry.cast<String, dynamic>()),
+        )
+        .toList();
   }
 
   Future<Map<String, dynamic>> _post(

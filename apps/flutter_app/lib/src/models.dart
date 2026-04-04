@@ -471,6 +471,57 @@ class HealthCheckModel {
   }
 }
 
+class ManagedUserModel {
+  const ManagedUserModel({
+    required this.uid,
+    required this.role,
+    required this.agencyId,
+    required this.displayName,
+    required this.email,
+    required this.disabled,
+    this.lastSignInAt,
+    this.createdAt,
+    this.updatedAt,
+  });
+
+  final String uid;
+  final String role;
+  final String agencyId;
+  final String displayName;
+  final String email;
+  final bool disabled;
+  final String? lastSignInAt;
+  final String? createdAt;
+  final String? updatedAt;
+
+  String get roleLabel {
+    switch (role) {
+      case 'admin':
+        return 'Admin';
+      case 'supervisor':
+        return 'Supervisor';
+      case 'nurse':
+        return 'Nurse';
+      default:
+        return role;
+    }
+  }
+
+  factory ManagedUserModel.fromMap(Map<String, dynamic> map) {
+    return ManagedUserModel(
+      uid: _readString(map['uid']) ?? '',
+      role: _readString(map['role']) ?? 'nurse',
+      agencyId: _readString(map['agencyId']) ?? '',
+      displayName: _readString(map['displayName']) ?? '',
+      email: _readString(map['email']) ?? '',
+      disabled: _readBool(map['disabled']) ?? false,
+      lastSignInAt: _readString(map['lastSignInAt']),
+      createdAt: _readString(map['createdAt']),
+      updatedAt: _readString(map['updatedAt']),
+    );
+  }
+}
+
 class DashboardCounts {
   const DashboardCounts({
     required this.totalPatients,
@@ -515,6 +566,62 @@ class AiAskResponseModel {
       references: _readStringList(json['references']),
       safetyFlags: _readStringList(json['safety_flags']),
       nextActions: _readStringList(json['next_actions']),
+    );
+  }
+}
+
+class AiChatLogEntryModel {
+  const AiChatLogEntryModel({
+    required this.id,
+    required this.prompt,
+    required this.response,
+    required this.answerType,
+    required this.bullets,
+    required this.disclaimer,
+    required this.references,
+    required this.safetyFlags,
+    required this.nextActions,
+    required this.model,
+    required this.actorUid,
+    required this.createdAt,
+    required this.flagged,
+    this.checklistDateId,
+    this.taskId,
+  });
+
+  final String id;
+  final String prompt;
+  final String response;
+  final String answerType;
+  final List<String> bullets;
+  final String disclaimer;
+  final List<String> references;
+  final List<String> safetyFlags;
+  final List<String> nextActions;
+  final String model;
+  final String actorUid;
+  final String createdAt;
+  final bool flagged;
+  final String? checklistDateId;
+  final String? taskId;
+
+  factory AiChatLogEntryModel.fromJson(Map<String, dynamic> json) {
+    return AiChatLogEntryModel(
+      id: _readString(json['id']) ?? '',
+      prompt: _readString(json['prompt']) ?? '',
+      response: _readString(json['response']) ?? '',
+      answerType: _readString(json['answerType']) ?? 'general_guidance',
+      bullets: _readStringList(json['bullets']),
+      disclaimer: _readString(json['disclaimer']) ?? '',
+      references: _readStringList(json['references']),
+      safetyFlags: _readStringList(json['safetyFlags']),
+      nextActions: _readStringList(json['nextActions']),
+      model: _readString(json['model']) ?? '',
+      actorUid: _readString(json['actorUid']) ?? '',
+      createdAt: _readString(json['createdAt']) ?? '',
+      flagged: _readBool(json['flagged']) ?? false,
+      checklistDateId: _readString(json['checklistDateId']),
+      taskId: _readString(json['taskId']),
     );
   }
 }

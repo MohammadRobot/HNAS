@@ -3898,18 +3898,26 @@ class _AiAssistantTab extends ConsumerStatefulWidget {
 }
 
 class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
+  static const ChatMessageModel _introMessage = ChatMessageModel(
+    id: 'init',
+    fromUser: false,
+    text:
+        'Ask operational care questions. Clinical diagnosis, prescribing, and dose changes are blocked.',
+  );
+
   final TextEditingController _questionController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final List<ChatMessageModel> _messages = <ChatMessageModel>[
-    const ChatMessageModel(
-      id: 'init',
-      fromUser: false,
-      text:
-          'Ask operational care questions. Clinical diagnosis, prescribing, and dose changes are blocked.',
-    ),
-  ];
+  final List<ChatMessageModel> _messages = <ChatMessageModel>[_introMessage];
   bool _loading = false;
+  bool _historyLoading = false;
+  String? _historyError;
   String? _selectedDateId;
+
+  @override
+  void initState() {
+    super.initState();
+    Future<void>.microtask(_loadChatHistory);
+  }
 
   @override
   void dispose() {
@@ -3918,9 +3926,82 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
     super.dispose();
   }
 
+  Future<void> _loadChatHistory() async {
+    if (_historyLoading) {
+      return;
+    }
+
+    setState(() {
+      _historyLoading = true;
+      _historyError = null;
+    });
+
+    try {
+      final logs = await ref.read(apiClientProvider).listAiLogs(
+            patientId: widget.patientId,
+            limit: 80,
+          );
+
+      if (!mounted) {
+        return;
+      }
+
+      final hydratedMessages = <ChatMessageModel>[_introMessage];
+      for (final log in logs) {
+        if (log.prompt.isNotEmpty) {
+          hydratedMessages.add(
+            ChatMessageModel(
+              id: 'hq_${log.id}',
+              fromUser: true,
+              text: log.prompt,
+            ),
+          );
+        }
+
+        if (log.response.isNotEmpty || log.bullets.isNotEmpty) {
+          hydratedMessages.add(
+            ChatMessageModel(
+              id: 'ha_${log.id}',
+              fromUser: false,
+              text: _formatAssistantText(
+                answerText: log.response,
+                bullets: log.bullets,
+              ),
+              meta: _buildAssistantMeta(
+                disclaimer: log.disclaimer,
+                references: log.references,
+                safetyFlags: log.safetyFlags,
+              ),
+            ),
+          );
+        }
+      }
+
+      setState(() {
+        _messages
+          ..clear()
+          ..addAll(hydratedMessages);
+      });
+      _scrollToBottom();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _historyError = 'Unable to load previous chat history: $error';
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _historyLoading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _send() async {
     final question = _questionController.text.trim();
-    if (question.isEmpty || _loading) {
+    if (question.isEmpty || _loading || _historyLoading) {
       return;
     }
 
@@ -3946,18 +4027,6 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
             date: dateId,
           );
 
-      final bulletText = response.bullets.isEmpty
-          ? ''
-          : '\n\n${response.bullets.map((item) => '- $item').join('\n')}';
-      final meta = <String>[
-        if (response.disclaimer.isNotEmpty)
-          'Disclaimer: ${response.disclaimer}',
-        if (response.references.isNotEmpty)
-          'References: ${response.references.join(', ')}',
-        if (response.safetyFlags.isNotEmpty)
-          'Safety: ${response.safetyFlags.join(', ')}',
-      ];
-
       if (!mounted) {
         return;
       }
@@ -3966,8 +4035,15 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
           ChatMessageModel(
             id: 'a_${DateTime.now().microsecondsSinceEpoch}',
             fromUser: false,
-            text: '${response.answerText}$bulletText',
-            meta: meta,
+            text: _formatAssistantText(
+              answerText: response.answerText,
+              bullets: response.bullets,
+            ),
+            meta: _buildAssistantMeta(
+              disclaimer: response.disclaimer,
+              references: response.references,
+              safetyFlags: response.safetyFlags,
+            ),
           ),
         );
       });
@@ -3992,6 +4068,28 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
         _scrollToBottom();
       }
     }
+  }
+
+  String _formatAssistantText({
+    required String answerText,
+    required List<String> bullets,
+  }) {
+    final bulletText = bullets.isEmpty
+        ? ''
+        : '\n\n${bullets.map((item) => '- $item').join('\n')}';
+    return '$answerText$bulletText';
+  }
+
+  List<String> _buildAssistantMeta({
+    required String disclaimer,
+    required List<String> references,
+    required List<String> safetyFlags,
+  }) {
+    return <String>[
+      if (disclaimer.isNotEmpty) 'Disclaimer: $disclaimer',
+      if (references.isNotEmpty) 'References: ${references.join(', ')}',
+      if (safetyFlags.isNotEmpty) 'Safety: ${safetyFlags.join(', ')}',
+    ];
   }
 
   void _scrollToBottom() {
@@ -4074,6 +4172,15 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
               const Text(
                 'AI disclaimer: operational support only, no diagnosis/prescription/dose changes.',
               ),
+              if (_historyError != null) ...<Widget>[
+                const SizedBox(height: 8),
+                Text(
+                  _historyError!,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -4088,7 +4195,8 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
             },
           ),
         ),
-        if (_loading) const LinearProgressIndicator(minHeight: 2),
+        if (_historyLoading || _loading)
+          const LinearProgressIndicator(minHeight: 2),
         SafeArea(
           top: false,
           child: Padding(
@@ -4110,7 +4218,7 @@ class _AiAssistantTabState extends ConsumerState<_AiAssistantTab> {
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: _loading ? null : _send,
+                  onPressed: (_loading || _historyLoading) ? null : _send,
                   child: const Text('Send'),
                 ),
               ],

@@ -3,6 +3,7 @@ import express, {
   type Request,
   type Response,
 } from 'express';
+import {type UserRecord, getAuth} from 'firebase-admin/auth';
 import {FieldValue} from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import {
@@ -175,6 +176,14 @@ const ALLOWED_LAB_RESULT_FLAGS = new Set<string>([
 const REPORTS_COLLECTION = 'reports';
 const REPORTS_DAILY_DOC_ID = 'daily';
 const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
+const MANAGEABLE_USER_ROLES = new Set<string>([
+  'admin',
+  'supervisor',
+  'nurse',
+]);
+const SUPERVISOR_MANAGEABLE_ROLES = new Set<string>([
+  'nurse',
+]);
 const CHECKLIST_UPDATE_LIMIT_PER_MINUTE = readPositiveIntFromEnv(
     'HNAS_RATE_LIMIT_CHECKLIST_UPDATE_PER_MINUTE',
     90,
@@ -251,6 +260,244 @@ app.post('/api/dashboard/counts', asyncRoute(async (req, res) => {
     missed,
     late,
     skipped,
+  });
+}));
+
+app.post('/api/users/list', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = toOptionalBodyObject(req.body);
+  const requestedAgencyId = readOptionalString(body, 'agencyId');
+  const targetAgencyId = resolveAgencyForWrite(context.user, requestedAgencyId);
+  const roleFilter = readOptionalManagedUserRole(body, 'role');
+
+  let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = firestore
+      .collection('users')
+      .where('agencyId', '==', targetAgencyId);
+  if (roleFilter) {
+    query = query.where('role', '==', roleFilter);
+  }
+
+  const snapshot = await query.get();
+  const users = snapshot.docs.map((doc) => {
+    const data = (doc.data() ?? {}) as UnknownRecord;
+    return {
+      uid: doc.id,
+      role: readRecordString(data, 'role') ?? 'viewer',
+      agencyId: readRecordString(data, 'agencyId') ?? '',
+      displayName: readRecordString(data, 'displayName') ?? '',
+      email: readRecordString(data, 'email') ?? '',
+      updatedAt: readRecordString(data, 'updatedAt') ?? '',
+      createdAt: readRecordString(data, 'createdAt') ?? '',
+    };
+  });
+
+  const authUserByUid = await loadAuthUsersByUid(users.map((user) => user.uid));
+  users.sort((left, right) => {
+    const byName = left.displayName.localeCompare(right.displayName);
+    if (byName !== 0) {
+      return byName;
+    }
+    return left.email.localeCompare(right.email);
+  });
+
+  res.status(200).json({
+    ok: true,
+    users: users.map((user) => {
+      const authUser = authUserByUid.get(user.uid);
+      return {
+        ...user,
+        email: authUser?.email ?? user.email,
+        disabled: authUser?.disabled ?? false,
+        lastSignInAt: authUser?.metadata.lastSignInTime ?? null,
+      };
+    }),
+  });
+}));
+
+app.post('/api/users/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const email = readRequiredString(body, 'email').toLowerCase();
+  const password = readRequiredString(body, 'password');
+  if (password.length < 8) {
+    throw new HttpError(400, 'invalid-argument', 'password must be at least 8 characters.');
+  }
+
+  const displayName = readRequiredString(body, 'displayName');
+  const role = readRequiredManagedUserRole(body, 'role');
+  if (context.user.role === 'supervisor' && !SUPERVISOR_MANAGEABLE_ROLES.has(role)) {
+    throw new HttpError(
+        403,
+        'permission-denied',
+        'Supervisor can only create nurse users.',
+    );
+  }
+
+  const requestedAgencyId = readOptionalString(body, 'agencyId');
+  const agencyId = resolveAgencyForWrite(context.user, requestedAgencyId);
+  const disabled = readOptionalBoolean(body, 'disabled') ?? false;
+  const nowIso = new Date().toISOString();
+  const auth = getAuth();
+
+  let createdUser: UserRecord;
+  try {
+    createdUser = await auth.createUser({
+      email,
+      password,
+      displayName,
+      disabled,
+    });
+  } catch (error) {
+    throw mapAuthErrorToHttp(error);
+  }
+
+  try {
+    await firestore.collection('users').doc(createdUser.uid).set(
+        {
+          role,
+          agencyId,
+          displayName,
+          email,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+        {merge: true},
+    );
+  } catch (error) {
+    try {
+      await auth.deleteUser(createdUser.uid);
+    } catch (rollbackError) {
+      logger.error('Failed to rollback auth user after user profile write error.', {
+        uid: createdUser.uid,
+        rollbackError: rollbackError instanceof Error ?
+          rollbackError.message :
+          String(rollbackError),
+      });
+    }
+    throw error;
+  }
+
+  res.status(201).json({
+    ok: true,
+    uid: createdUser.uid,
+  });
+}));
+
+app.post('/api/users/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const uid = readRequiredString(body, 'uid');
+  const userRef = firestore.collection('users').doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new HttpError(404, 'not-found', `User "${uid}" was not found.`);
+  }
+
+  const existing = (userSnap.data() ?? {}) as UnknownRecord;
+  const existingRole = readRecordString(existing, 'role') ?? 'viewer';
+  const existingAgencyId = readRecordString(existing, 'agencyId') ?? '';
+
+  if (context.user.role === 'supervisor') {
+    const supervisorAgencyId = requireUserAgencyId(context.user);
+    if (existingAgencyId !== supervisorAgencyId) {
+      throw new HttpError(
+          403,
+          'permission-denied',
+          'Supervisor can only manage users in their own agency.',
+      );
+    }
+    if (!SUPERVISOR_MANAGEABLE_ROLES.has(existingRole)) {
+      throw new HttpError(
+          403,
+          'permission-denied',
+          'Supervisor can only manage nurse users.',
+      );
+    }
+  }
+
+  const profilePatch: UnknownRecord = {};
+  const authPatch: {
+    email?: string;
+    password?: string;
+    displayName?: string;
+    disabled?: boolean;
+  } = {};
+
+  if (hasOwn(body, 'displayName')) {
+    const displayName = readRequiredString(body, 'displayName');
+    profilePatch.displayName = displayName;
+    authPatch.displayName = displayName;
+  }
+
+  if (hasOwn(body, 'email')) {
+    const email = readRequiredString(body, 'email').toLowerCase();
+    profilePatch.email = email;
+    authPatch.email = email;
+  }
+
+  if (hasOwn(body, 'password')) {
+    const password = readRequiredString(body, 'password');
+    if (password.length < 8) {
+      throw new HttpError(400, 'invalid-argument', 'password must be at least 8 characters.');
+    }
+    authPatch.password = password;
+  }
+
+  if (hasOwn(body, 'disabled')) {
+    authPatch.disabled = readRequiredBoolean(body, 'disabled');
+  }
+
+  if (hasOwn(body, 'role')) {
+    if (uid === context.uid) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'Changing your own role is not allowed from this endpoint.',
+      );
+    }
+
+    const role = readRequiredManagedUserRole(body, 'role');
+    if (context.user.role === 'supervisor' && !SUPERVISOR_MANAGEABLE_ROLES.has(role)) {
+      throw new HttpError(
+          403,
+          'permission-denied',
+          'Supervisor can only assign nurse role.',
+      );
+    }
+    profilePatch.role = role;
+  }
+
+  if (hasOwn(body, 'agencyId')) {
+    const requestedAgencyId = readRequiredString(body, 'agencyId');
+    profilePatch.agencyId = resolveAgencyForWrite(context.user, requestedAgencyId);
+  }
+
+  if (Object.keys(profilePatch).length === 0 && Object.keys(authPatch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable fields provided.');
+  }
+
+  if (Object.keys(authPatch).length > 0) {
+    try {
+      await getAuth().updateUser(uid, authPatch);
+    } catch (error) {
+      throw mapAuthErrorToHttp(error);
+    }
+  }
+
+  if (Object.keys(profilePatch).length > 0) {
+    profilePatch.updatedAt = new Date().toISOString();
+    await userRef.set(profilePatch, {merge: true});
+  }
+
+  res.status(200).json({
+    ok: true,
+    uid,
   });
 }));
 
@@ -1426,6 +1673,61 @@ app.post('/api/ai/ask', asyncRoute(async (req, res) => {
 
     throw error;
   }
+}));
+
+app.post('/api/ai/logs', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const requestedLimit = readOptionalNumber(body, 'limit');
+  if (requestedLimit !== undefined && !Number.isInteger(requestedLimit)) {
+    throw new HttpError(400, 'invalid-argument', 'limit must be an integer.');
+  }
+  const limit = requestedLimit === undefined ? 50 : requestedLimit;
+  if (limit < 1 || limit > 200) {
+    throw new HttpError(400, 'invalid-argument', 'limit must be between 1 and 200.');
+  }
+
+  await assertPatientAccess(context.user, patientId);
+
+  const logsSnapshot = await firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('aiQaLogs')
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+  const logs = logsSnapshot.docs
+      .map((doc) => {
+        const data = (doc.data() ?? {}) as UnknownRecord;
+        return {
+          id: doc.id,
+          prompt: readRecordString(data, 'prompt') ?? '',
+          response: readRecordString(data, 'response') ?? '',
+          answerType: readRecordString(data, 'answerType') ?? 'general_guidance',
+          bullets: readRecordStringArray(data, 'bullets'),
+          disclaimer: readRecordString(data, 'disclaimer') ?? '',
+          references: readRecordStringArray(data, 'references'),
+          safetyFlags: readRecordStringArray(data, 'safetyFlags'),
+          nextActions: readRecordStringArray(data, 'nextActions'),
+          model: readRecordString(data, 'model') ?? '',
+          actorUid: readRecordString(data, 'actorUid') ?? '',
+          createdAt: readRecordString(data, 'createdAt') ?? '',
+          checklistDateId: readRecordString(data, 'checklistDateId'),
+          taskId: readRecordString(data, 'taskId'),
+          flagged: data.flagged === true,
+        };
+      })
+      .reverse();
+
+  res.status(200).json({
+    ok: true,
+    patientId,
+    logs,
+  });
 }));
 
 app.use((_req, res) => {
@@ -3056,6 +3358,31 @@ function readAndValidateLabTestStatus(
   return normalized === 'canceled' ? 'cancelled' : normalized;
 }
 
+function readRequiredManagedUserRole(obj: UnknownRecord, key: string): string {
+  const value = readRequiredString(obj, key).toLowerCase();
+  if (!MANAGEABLE_USER_ROLES.has(value)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(MANAGEABLE_USER_ROLES).join(', ')}.`,
+    );
+  }
+
+  return value;
+}
+
+function readOptionalManagedUserRole(
+    obj: UnknownRecord,
+    key: string,
+): string | undefined {
+  const value = obj[key];
+  if (value === undefined) {
+    return undefined;
+  }
+
+  return readRequiredManagedUserRole(obj, key);
+}
+
 function readOptionalLabResultFlag(obj: UnknownRecord, key: string): string | undefined {
   const value = readOptionalString(obj, key);
   if (!value) {
@@ -3071,6 +3398,57 @@ function readOptionalLabResultFlag(obj: UnknownRecord, key: string): string | un
     );
   }
   return normalized;
+}
+
+async function loadAuthUsersByUid(uids: string[]): Promise<Map<string, UserRecord>> {
+  const uniqueUids = Array.from(new Set(uids.filter((uid) => uid.length > 0)));
+  if (uniqueUids.length === 0) {
+    return new Map<string, UserRecord>();
+  }
+
+  const auth = getAuth();
+  const result = new Map<string, UserRecord>();
+  for (const chunk of chunkValues(uniqueUids, 100)) {
+    const usersResult = await auth.getUsers(chunk.map((uid) => ({uid})));
+    usersResult.users.forEach((user) => {
+      result.set(user.uid, user);
+    });
+  }
+
+  return result;
+}
+
+function chunkValues<T>(values: T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+
+  return chunks;
+}
+
+function mapAuthErrorToHttp(error: unknown): HttpError {
+  const code = isRecord(error) && typeof error.code === 'string' ?
+    error.code :
+    '';
+  const message = isRecord(error) && typeof error.message === 'string' ?
+    error.message :
+    'Authentication provider request failed.';
+
+  if (code === 'auth/email-already-exists') {
+    return new HttpError(409, 'already-exists', 'Email already exists.');
+  }
+  if (code === 'auth/invalid-password') {
+    return new HttpError(400, 'invalid-argument', 'Password is invalid.');
+  }
+  if (code === 'auth/invalid-email') {
+    return new HttpError(400, 'invalid-argument', 'Email is invalid.');
+  }
+  if (code === 'auth/user-not-found') {
+    return new HttpError(404, 'not-found', 'Target auth user was not found.');
+  }
+
+  return new HttpError(500, 'internal', message);
 }
 
 function parseIsoDateTimeOrThrow(raw: string | undefined, fieldName: string): string {

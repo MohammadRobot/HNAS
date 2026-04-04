@@ -6,6 +6,7 @@ import 'providers.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/patient_details_screen.dart';
+import 'screens/users_management_screen.dart';
 
 final appRouterProvider = Provider<GoRouter>((ref) {
   final auth = ref.watch(firebaseAuthProvider);
@@ -25,6 +26,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/dashboard',
         name: 'dashboard',
         builder: (context, state) => const DashboardScreen(),
+      ),
+      GoRoute(
+        path: '/users',
+        name: 'users',
+        builder: (context, state) => const UsersManagementScreen(),
       ),
       GoRoute(
         path: '/patient/:patientId',
