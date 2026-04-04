@@ -366,22 +366,30 @@ HNAS_FIREBASE_API_KEY=<web-api-key>
 HNAS_FIREBASE_APP_ID=<web-app-id>
 HNAS_FIREBASE_MESSAGING_SENDER_ID=<sender-id>
 ```
-2. Build and deploy:
+2. Run deployment commands together:
 ```bash
 cd ~/HNAS
+
+# 1) Select correct Firebase project
+firebase login
+firebase use --add
+firebase use hnas-4a4b8
+
+# 2) Build web app (uses .env values)
 npm run build:flutter:web
+
+# 3) Deploy backend + rules + hosting
 firebase deploy --only hosting,functions,firestore:rules,firestore:indexes
-```
-3. If only `onTaskUpdate` fails during first Eventarc setup, retry:
-```bash
+
+# If first deploy fails only on Firestore trigger setup, run once more:
 firebase deploy --only functions:onTaskUpdate
 ```
-4. Create staff users in Firebase Auth and create matching Firestore user docs:
+3. Create staff users in Firebase Auth and create matching Firestore user docs:
 `/users/{uid}` with `role`, `agencyId`, and `displayName`.
-5. Patient visibility rules:
+4. Patient visibility rules:
 - `admin` and `supervisor` can read patients in the same `agencyId`
 - `nurse` can read only patients where their uid is in `assignedNurseIds`
-6. If dashboard shows `permission-denied`, verify:
+5. If dashboard shows `permission-denied`, verify:
 - `/users/{uid}` exists for the signed-in account
 - user `role` is `admin`, `supervisor`, or `nurse`
 - patient `agencyId` and/or `assignedNurseIds` are set correctly
@@ -512,6 +520,13 @@ Deploy Functions, Firestore config, and Hosting from the repository root:
 
 ```bash
 firebase deploy
+```
+
+If only the Firestore trigger deployment fails during initial 2nd gen setup,
+retry just that function:
+
+```bash
+firebase deploy --only functions:onTaskUpdate
 ```
 
 ## Notes
