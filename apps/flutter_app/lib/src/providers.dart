@@ -56,7 +56,7 @@ final userProfileProvider = StreamProvider<AppUserProfile?>((ref) {
 });
 
 final todayDateIdProvider = Provider<String>((ref) {
-  final now = DateTime.now().toUtc();
+  final now = DateTime.now();
   final month = now.month.toString().padLeft(2, '0');
   final day = now.day.toString().padLeft(2, '0');
   return '${now.year}-$month-$day';
@@ -347,70 +347,20 @@ final todayReportProvider =
   );
 });
 
-final dashboardCountsProvider = StreamProvider<DashboardCounts>((ref) {
+final dashboardCountsProvider = FutureProvider<DashboardCounts>((ref) async {
   final dateId = ref.watch(todayDateIdProvider);
-  final patientsAsync = ref.watch(patientsStreamProvider);
-  if (patientsAsync.hasError) {
-    return Stream.error(patientsAsync.error!, patientsAsync.stackTrace);
-  }
-  final totalPatients = patientsAsync.value?.length ?? 0;
-
-  // Firestore Web SDK currently crashes intermittently on emulator watch streams
-  // for this collection-group query. Keep dashboard usable by returning
-  // patient totals until the upstream SDK issue is resolved.
-  if (kIsWeb) {
-    return Stream.value(
-      DashboardCounts(
-        totalPatients: totalPatients,
-        done: 0,
-        missed: 0,
-        late: 0,
-        skipped: 0,
-      ),
+  final profile = await ref.watch(userProfileProvider.future);
+  if (profile == null) {
+    return const DashboardCounts(
+      totalPatients: 0,
+      done: 0,
+      missed: 0,
+      late: 0,
+      skipped: 0,
     );
   }
 
-  return _withStreamTimeout(
-    ref
-        .watch(firestoreProvider)
-        .collectionGroup('dailyChecklists')
-        .where('dateId', isEqualTo: dateId)
-        .snapshots()
-        .map((snapshot) {
-      var done = 0;
-      var missed = 0;
-      var late = 0;
-      var skipped = 0;
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final checklist = DailyChecklistModel.fromMap(doc.id, data);
-        final resultMap = checklist.resultByTaskId();
-
-        for (final task in checklist.tasks) {
-          final status = resultMap[task.id]?.status ?? 'pending';
-          if (status == 'completed' || status == 'done') {
-            done += 1;
-          } else if (status == 'late') {
-            late += 1;
-          } else if (status == 'skipped') {
-            skipped += 1;
-          } else {
-            missed += 1;
-          }
-        }
-      }
-
-      return DashboardCounts(
-        totalPatients: totalPatients,
-        done: done,
-        missed: missed,
-        late: late,
-        skipped: skipped,
-      );
-    }),
-    'dashboard counts',
-  );
+  return ref.read(apiClientProvider).fetchDashboardCounts(date: dateId);
 });
 
 Stream<T> _withStreamTimeout<T>(Stream<T> stream, String label) {

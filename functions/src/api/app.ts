@@ -3,6 +3,7 @@ import express, {
   type Request,
   type Response,
 } from 'express';
+import {FieldValue} from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import {
   assertPatientAccess,
@@ -13,16 +14,19 @@ import {
   type AuthzUserProfile,
   type RequestLike,
 } from '../lib/authz';
+import {assertAppCheckIfConfigured} from '../lib/appCheck';
 import {
   applySafetyFlags,
   computeRapidDose,
   type RapidDoseProfile,
 } from '../lib/insulin';
+import {assertRateLimit} from '../lib/rateLimit';
 import {
   generateChecklistTasks,
   type ChecklistSourceRecord,
 } from '../lib/checklistGenerator';
 import {firestore, toDateId} from '../lib/firestore';
+import {getDateIdForTimeZone, normalizeTimeZone} from '../lib/timezone';
 import {type DailyChecklist, type Task} from '../lib/types';
 
 type UnknownRecord = Record<string, unknown>;
@@ -171,6 +175,14 @@ const ALLOWED_LAB_RESULT_FLAGS = new Set<string>([
 const REPORTS_COLLECTION = 'reports';
 const REPORTS_DAILY_DOC_ID = 'daily';
 const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
+const CHECKLIST_UPDATE_LIMIT_PER_MINUTE = readPositiveIntFromEnv(
+    'HNAS_RATE_LIMIT_CHECKLIST_UPDATE_PER_MINUTE',
+    90,
+);
+const AI_ASK_LIMIT_PER_MINUTE = readPositiveIntFromEnv(
+    'HNAS_RATE_LIMIT_AI_ASK_PER_MINUTE',
+    30,
+);
 
 const app = express();
 
@@ -178,6 +190,69 @@ app.use(express.json({limit: '1mb'}));
 app.use('/api', (req, _res, next) => {
   void getAuthContext(req as AuthedRequest).then(() => next()).catch(next);
 });
+app.use('/api', (req, _res, next) => {
+  void assertAppCheckIfConfigured(req as unknown as RequestLike)
+      .then(() => next())
+      .catch(next);
+});
+
+app.post('/api/dashboard/counts', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = toOptionalBodyObject(req.body);
+  const date = readOptionalString(body, 'date') ?? toDateId(new Date());
+  assertDateId(date, 'date');
+
+  let query: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> =
+    firestore.collection('patients');
+
+  if (context.user.role === 'nurse') {
+    query = query.where('assignedNurseIds', 'array-contains', context.uid);
+  } else {
+    query = query.where('agencyId', '==', requireUserAgencyId(context.user));
+  }
+  query = query.where('active', '==', true);
+
+  const patientsSnapshot = await query.get();
+  const reportRefs = patientsSnapshot.docs.map((patientDoc) => (
+    patientDoc.ref
+        .collection(REPORTS_COLLECTION)
+        .doc(REPORTS_DAILY_DOC_ID)
+        .collection(REPORTS_BY_DATE_SUBCOLLECTION)
+        .doc(date)
+  ));
+
+  const reportSnapshots = reportRefs.length > 0 ?
+    await firestore.getAll(...reportRefs) :
+    [];
+
+  let done = 0;
+  let missed = 0;
+  let late = 0;
+  let skipped = 0;
+  for (const reportSnap of reportSnapshots) {
+    if (!reportSnap.exists) {
+      continue;
+    }
+
+    const report = (reportSnap.data() ?? {}) as UnknownRecord;
+    done += toNonNegativeInt(readRecordNumber(report, 'done'));
+    missed += toNonNegativeInt(readRecordNumber(report, 'missed'));
+    late += toNonNegativeInt(readRecordNumber(report, 'late'));
+    skipped += toNonNegativeInt(readRecordNumber(report, 'skipped'));
+  }
+
+  res.status(200).json({
+    ok: true,
+    date,
+    totalPatients: patientsSnapshot.size,
+    done,
+    missed,
+    late,
+    skipped,
+  });
+}));
 
 app.post('/api/patients/list', asyncRoute(async (req, res) => {
   const context = await getAuthContext(req);
@@ -240,7 +315,9 @@ app.post('/api/patients/create', asyncRoute(async (req, res) => {
   const requestedAgencyId = readOptionalString(body, 'agencyId');
   const agencyId = resolveAgencyForWrite(context.user, requestedAgencyId);
   const assignedNurseIds = readOptionalStringArray(body, 'assignedNurseIds') ?? [];
-  const insulinProfiles = readOptionalArray(body, 'insulinProfiles') ?? [];
+  const insulinProfiles = normalizeInsulinProfileArray(
+      readOptionalArray(body, 'insulinProfiles') ?? [],
+  );
   const nowIso = new Date().toISOString();
 
   const patientRef = firestore.collection('patients').doc();
@@ -251,7 +328,6 @@ app.post('/api/patients/create', asyncRoute(async (req, res) => {
     active,
     agencyId,
     assignedNurseIds,
-    insulinProfiles,
     createdAt: nowIso,
     updatedAt: nowIso,
   };
@@ -288,6 +364,7 @@ app.post('/api/patients/create', asyncRoute(async (req, res) => {
   }
 
   await patientRef.set(patientData);
+  await upsertInitialInsulinProfiles(patientRef, insulinProfiles, nowIso);
   if (initialHealthCheck) {
     await createHealthCheckRecord({
       patientRef,
@@ -310,6 +387,9 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
   const body = requireBodyObject(req.body);
   const patientId = readRequiredString(body, 'patientId');
   await assertPatientAccess(context.user, patientId);
+  const insulinProfilesForUpsert = hasOwn(body, 'insulinProfiles') ?
+    normalizeInsulinProfileArray(readRequiredArray(body, 'insulinProfiles')) :
+    undefined;
 
   const patch: UnknownRecord = {};
   if (hasOwn(body, 'fullName')) {
@@ -356,9 +436,6 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
   if (hasOwn(body, 'allergies')) {
     patch.allergies = readRequiredStringArray(body, 'allergies');
   }
-  if (hasOwn(body, 'insulinProfiles')) {
-    patch.insulinProfiles = readRequiredArray(body, 'insulinProfiles');
-  }
   if (hasOwn(body, 'agencyId')) {
     assertRole(context.user, ['admin']);
     patch.agencyId = readRequiredString(body, 'agencyId');
@@ -368,8 +445,17 @@ app.post('/api/patients/update', asyncRoute(async (req, res) => {
     throw new HttpError(400, 'invalid-argument', 'No updatable patient fields provided.');
   }
 
-  patch.updatedAt = new Date().toISOString();
-  await firestore.collection('patients').doc(patientId).set(patch, {merge: true});
+  const nowIso = new Date().toISOString();
+  patch.updatedAt = nowIso;
+  const patientRef = firestore.collection('patients').doc(patientId);
+  await patientRef.set(patch, {merge: true});
+  if (insulinProfilesForUpsert !== undefined) {
+    await upsertInitialInsulinProfiles(patientRef, insulinProfilesForUpsert, nowIso);
+    await patientRef.set({
+      insulinProfiles: FieldValue.delete(),
+      updatedAt: nowIso,
+    }, {merge: true});
+  }
 
   res.status(200).json({
     ok: true,
@@ -407,8 +493,10 @@ app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
 
   const body = requireBodyObject(req.body);
   const patientId = readRequiredString(body, 'patientId');
-  const date = readOptionalString(body, 'date') ?? toDateId(new Date());
-  assertDateId(date, 'date');
+  const requestedDate = readOptionalString(body, 'date');
+  if (requestedDate) {
+    assertDateId(requestedDate, 'date');
+  }
   await assertPatientAccess(context.user, patientId);
 
   const patientRef = firestore.collection('patients').doc(patientId);
@@ -418,6 +506,10 @@ app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
   }
 
   const patientData = (patientSnap.data() ?? {}) as UnknownRecord;
+  const date = requestedDate ?? getDateIdForTimeZone(
+      new Date(),
+      normalizeTimeZone(patientData.timezone),
+  );
   const [medicinesSnap, proceduresSnap, insulinSnap] = await Promise.all([
     patientRef.collection('medicines').where('active', '==', true).get(),
     patientRef.collection('procedures').where('active', '==', true).get(),
@@ -1021,6 +1113,7 @@ app.post('/api/checklist/get', asyncRoute(async (req, res) => {
 
 app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
   const context = await getAuthContext(req);
+  enforceRateLimitForUser(context.uid, 'checklist_update');
   const body = requireBodyObject(req.body);
 
   const patientId = readRequiredString(body, 'patientId');
@@ -1216,6 +1309,7 @@ app.post('/api/reports/generate', asyncRoute(async (req, res) => {
 app.post('/api/ai/ask', asyncRoute(async (req, res) => {
   const context = await getAuthContext(req);
   assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+  enforceRateLimitForUser(context.uid, 'ai_ask');
 
   const body = requireBodyObject(req.body);
   const patientId = readRequiredString(body, 'patientId');
@@ -1511,7 +1605,10 @@ async function loadAiContext(input: LoadAiContextInput): Promise<AiContextBundle
   };
 
   if (input.taskId) {
-    const checklistDate = input.date ?? toDateId(new Date());
+    const checklistDate = input.date ?? getDateIdForTimeZone(
+        new Date(),
+        normalizeTimeZone(patientData.timezone),
+    );
     const checklistRef = patientRef.collection('dailyChecklists').doc(checklistDate);
     const checklistSnap = await checklistRef.get();
     if (!checklistSnap.exists) {
@@ -2279,6 +2376,71 @@ function toChecklistSourceRecord(
   };
 }
 
+function normalizeInsulinProfileArray(values: unknown[]): UnknownRecord[] {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const normalizedById = new Map<string, UnknownRecord>();
+  values.forEach((value, index) => {
+    if (!isRecord(value)) {
+      return;
+    }
+
+    const existingId = readRecordString(value, 'id');
+    const id = existingId ?? `profile_${index + 1}`;
+    const rawType = readRecordString(value, 'type')?.toLowerCase();
+    if (rawType && rawType !== 'rapid' && rawType !== 'basal') {
+      return;
+    }
+
+    const profile: UnknownRecord = {
+      ...value,
+      id,
+      type: rawType ?? 'rapid',
+    };
+    if (typeof profile.active !== 'boolean') {
+      profile.active = true;
+    }
+
+    normalizedById.set(id, profile);
+  });
+
+  return Array.from(normalizedById.values());
+}
+
+async function upsertInitialInsulinProfiles(
+    patientRef: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>,
+    insulinProfiles: UnknownRecord[],
+    nowIso: string,
+): Promise<void> {
+  if (insulinProfiles.length === 0) {
+    return;
+  }
+
+  const batch = firestore.batch();
+  let writes = 0;
+  for (const profile of insulinProfiles) {
+    const profileId = readRecordString(profile, 'id');
+    if (!profileId) {
+      continue;
+    }
+
+    const profileRef = patientRef.collection('insulinProfiles').doc(profileId);
+    const payload: UnknownRecord = {
+      ...profile,
+      id: profileId,
+      updatedAt: nowIso,
+      createdAt: readRecordString(profile, 'createdAt') ?? nowIso,
+    };
+    batch.set(profileRef, payload, {merge: true});
+    writes += 1;
+  }
+  if (writes > 0) {
+    await batch.commit();
+  }
+}
+
 function resolveInsulinProfilesForChecklist(
     patientData: UnknownRecord,
     subcollectionProfiles: ChecklistSourceRecord[],
@@ -2359,6 +2521,13 @@ function readRecordNumber(record: UnknownRecord | undefined, key: string): numbe
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function toNonNegativeInt(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.trunc(value as number));
+}
+
 function readRecordStringArray(record: UnknownRecord, key: string): string[] {
   const value = record[key];
   if (!Array.isArray(value)) {
@@ -2425,6 +2594,42 @@ function sanitizeStringArray(
 
 function uniqueStrings(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function enforceRateLimitForUser(
+    uid: string,
+    action: 'checklist_update' | 'ai_ask',
+): void {
+  if (action === 'checklist_update') {
+    assertRateLimit({
+      bucketKey: `${action}:${uid}`,
+      limit: CHECKLIST_UPDATE_LIMIT_PER_MINUTE,
+      windowMs: 60_000,
+      message: 'Too many checklist updates. Please slow down and retry.',
+    });
+    return;
+  }
+
+  assertRateLimit({
+    bucketKey: `${action}:${uid}`,
+    limit: AI_ASK_LIMIT_PER_MINUTE,
+    windowMs: 60_000,
+    message: 'Too many AI requests. Please retry in a minute.',
+  });
+}
+
+function readPositiveIntFromEnv(name: string, defaultValue: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return defaultValue;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+
+  return parsed;
 }
 
 function resolveAgencyForWrite(user: AuthzUserProfile, requestedAgencyId?: string): string {

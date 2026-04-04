@@ -1,12 +1,16 @@
 import {
   type DocumentData,
   type DocumentReference,
-  type QueryDocumentSnapshot,
 } from 'firebase-admin/firestore';
 import * as logger from 'firebase-functions/logger';
 import {onSchedule} from 'firebase-functions/v2/scheduler';
-import {firestore, toDateId} from '../lib/firestore';
+import {firestore} from '../lib/firestore';
 import {createIssue} from '../lib/rulesEngine';
+import {
+  getDateIdForTimeZone,
+  normalizeTimeZone,
+  shouldRunEndOfDaySweepNow,
+} from '../lib/timezone';
 import {
   type DailyChecklist,
   type Issue,
@@ -25,38 +29,48 @@ const AUTO_MISSED_NOTE = 'Auto-marked as missed by end-of-day sweep.';
 
 export const endOfDaySweep = onSchedule(
     {
-      schedule: '59 23 * * *',
-      timeZone: 'Etc/UTC',
+      schedule: '*/15 * * * *',
+      timeZone: 'UTC',
     },
     async () => {
-      const dateId = toDateId(new Date());
-
-      const checklistSnapshot = await firestore
-          .collectionGroup(DAILY_CHECKLISTS_COLLECTION)
-          .where('dateId', '==', dateId)
+      const now = new Date();
+      const patientsSnapshot = await firestore
+          .collection('patients')
+          .where('active', '==', true)
           .get();
 
       logger.info('Starting end-of-day sweep.', {
-        dateId,
-        checklistCount: checklistSnapshot.size,
+        triggerAt: now.toISOString(),
+        patientCount: patientsSnapshot.size,
       });
 
-      for (const checklistDoc of checklistSnapshot.docs) {
-        const patientRef = checklistDoc.ref.parent.parent;
-        if (!patientRef) {
+      for (const patientDoc of patientsSnapshot.docs) {
+        const patientRef = patientDoc.ref as DocumentReference<DocumentData>;
+        const patientTimeZone = normalizeTimeZone(patientDoc.data().timezone);
+        if (!shouldRunEndOfDaySweepNow(now, patientTimeZone)) {
           continue;
         }
 
+        const dateId = getDateIdForTimeZone(now, patientTimeZone);
+        const checklistRef = patientRef
+            .collection(DAILY_CHECKLISTS_COLLECTION)
+            .doc(dateId) as DocumentReference<DailyChecklist>;
+
         try {
           const summary = await sweepChecklistForPatient(
-          patientRef as DocumentReference<DocumentData>,
-          checklistDoc,
-          dateId,
+              patientRef,
+              checklistRef,
+              dateId,
           );
+
+          if (!summary.hasChecklist) {
+            continue;
+          }
 
           logger.info('Completed end-of-day sweep for checklist.', {
             dateId,
             patientId: patientRef.id,
+            patientTimeZone,
             missedCreated: summary.missedCreated,
             done: summary.counts.done,
             missed: summary.counts.missed,
@@ -67,7 +81,8 @@ export const endOfDaySweep = onSchedule(
           logger.error('End-of-day sweep failed for checklist.', {
             dateId,
             patientId: patientRef.id,
-            checklistPath: checklistDoc.ref.path,
+            patientTimeZone,
+            checklistPath: checklistRef.path,
             error: error instanceof Error ? error.message : String(error),
           });
         }
@@ -76,6 +91,7 @@ export const endOfDaySweep = onSchedule(
 );
 
 interface SweepSummary {
+  hasChecklist: boolean;
   missedCreated: number;
   counts: DailyCounts;
 }
@@ -89,10 +105,9 @@ interface DailyCounts {
 
 async function sweepChecklistForPatient(
     patientRef: DocumentReference<DocumentData>,
-    checklistDoc: QueryDocumentSnapshot<DocumentData>,
+    checklistRef: DocumentReference<DailyChecklist>,
     dateId: string,
 ): Promise<SweepSummary> {
-  const checklistRef = checklistDoc.ref as DocumentReference<DailyChecklist>;
   const reportRef = patientRef
       .collection(REPORTS_COLLECTION)
       .doc(REPORTS_DAILY_DOC_ID)
@@ -105,6 +120,7 @@ async function sweepChecklistForPatient(
 
     if (!freshChecklistSnap.exists) {
       return {
+        hasChecklist: false,
         missedCreated: 0,
         counts: {done: 0, missed: 0, late: 0, skipped: 0},
       };
@@ -175,6 +191,7 @@ async function sweepChecklistForPatient(
     );
 
     return {
+      hasChecklist: true,
       missedCreated: sweep.missedTasks.length,
       counts,
     };

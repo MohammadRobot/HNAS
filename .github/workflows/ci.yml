@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  functions:
+    name: Functions Lint Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: functions/package-lock.json
+
+      - name: Install Functions Dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Lint Functions
+        run: npm run lint
+        working-directory: functions
+
+      - name: Build Functions
+        run: npm run build
+        working-directory: functions
+
+      - name: Test Functions
+        run: npm test
+        working-directory: functions
+
+  flutter:
+    name: Flutter Analyze Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install Flutter Dependencies
+        run: flutter pub get
+        working-directory: apps/flutter_app
+
+      - name: Analyze Flutter
+        run: flutter analyze
+        working-directory: apps/flutter_app
+
+      - name: Test Flutter
+        run: flutter test
+        working-directory: apps/flutter_app

@@ -8,7 +8,12 @@ import {
   type ChecklistSourceRecord,
   generateChecklistTasks,
 } from '../lib/checklistGenerator';
-import {firestore, patientSubcollectionRef, toDateId} from '../lib/firestore';
+import {firestore, patientSubcollectionRef} from '../lib/firestore';
+import {
+  getDateIdForTimeZone,
+  normalizeTimeZone,
+  shouldGenerateChecklistNow,
+} from '../lib/timezone';
 import {
   type DailyChecklist,
   type Issue,
@@ -24,23 +29,30 @@ const DAILY_CHECKLISTS_SUBCOLLECTION = 'dailyChecklists';
 
 export const generateDailyChecklists = onSchedule(
     {
-      schedule: '0 0 * * *',
-      timeZone: 'Etc/UTC',
+      schedule: '*/15 * * * *',
+      timeZone: 'UTC',
     },
     async () => {
-      const dateId = toDateId(new Date());
+      const now = new Date();
       const patientsSnapshot = await firestore
           .collection(PATIENTS_COLLECTION)
           .where('active', '==', true)
           .get();
 
       logger.info('Starting daily checklist generation.', {
-        dateId,
+        triggerAt: now.toISOString(),
         patientCount: patientsSnapshot.size,
       });
 
       for (const patientDoc of patientsSnapshot.docs) {
         const patientId = patientDoc.id;
+        const patientData = patientDoc.data();
+        const patientTimeZone = normalizeTimeZone(patientData.timezone);
+        if (!shouldGenerateChecklistNow(now, patientTimeZone)) {
+          continue;
+        }
+
+        const dateId = getDateIdForTimeZone(now, patientTimeZone);
 
         try {
           const [medicinesSnapshot, proceduresSnapshot, insulinSnapshot] = await Promise.all([
@@ -58,7 +70,7 @@ export const generateDailyChecklists = onSchedule(
           const medicines = medicinesSnapshot.docs.map(toSourceRecord);
           const procedures = proceduresSnapshot.docs.map(toSourceRecord);
           const insulinProfiles = resolveInsulinProfiles(
-              patientDoc.data(),
+              patientData,
               insulinSnapshot.docs.map(toSourceRecord),
           );
 
@@ -79,12 +91,14 @@ export const generateDailyChecklists = onSchedule(
           logger.info('Generated daily checklist.', {
             patientId,
             dateId,
+            patientTimeZone,
             taskCount: tasks.length,
           });
         } catch (error) {
           logger.error('Failed to generate daily checklist for patient.', {
             patientId,
             dateId,
+            patientTimeZone,
             error: error instanceof Error ? error.message : String(error),
           });
         }
@@ -230,4 +244,3 @@ function isAllowedTaskResultType(value: unknown): boolean {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-

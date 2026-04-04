@@ -24,8 +24,9 @@ HNAS is centered around a daily care workflow:
 - patient details with tabs for overview, medications, procedures, lab tests, checklist, reports, and AI assistant
 - deterministic rapid insulin preview logic in the Flutter app
 - HTTPS API for task updates and AI requests
+- HTTPS API for role-scoped dashboard counts aggregation
 - Firestore streams for patient, checklist, and report reads
-- scheduled checklist generation and end-of-day sweep jobs
+- timezone-aware scheduled checklist generation and end-of-day sweep jobs
 - Firestore trigger logic for task logging, insulin calculations, and issue creation
 - Firestore security rules for user, patient, subcollection, template, and AI QA access
 
@@ -300,6 +301,13 @@ into `--dart-define` at build time:
 - `HNAS_FIREBASE_PROJECT_ID`
 - `HNAS_API_BASE_URL`
 
+Optional backend hardening environment values:
+
+- `HNAS_ALLOWED_ORIGINS` (comma-separated CORS allowlist)
+- `HNAS_ENFORCE_APP_CHECK` (`true` to require Firebase App Check on `/api/*`)
+- `HNAS_RATE_LIMIT_CHECKLIST_UPDATE_PER_MINUTE`
+- `HNAS_RATE_LIMIT_AI_ASK_PER_MINUTE`
+
 If you run commands directly (outside npm scripts), load env values into your
 current shell:
 
@@ -354,6 +362,15 @@ export OPENAI_MODEL=gpt-4o-mini
 
 If OpenAI config is not set, the backend uses template/deterministic fallback
 responses.
+
+### Background Schedulers (Timezone-Aware)
+
+Scheduled jobs run every 15 minutes and use each patient document `timezone`:
+
+- daily checklist generation runs when patient local time is near `00:00`
+- end-of-day sweep runs when patient local time is near `23:45`
+
+If a patient has no valid `timezone`, the backend falls back to `Etc/UTC`.
 
 ## Production Checklist (Verified April 4, 2026)
 
@@ -422,6 +439,16 @@ Create three Firebase Auth users with email and password:
 - one nurse
 
 Get each Firebase Auth UID, then create matching Firestore documents in `/users/{uid}`.
+
+If you have legacy inline insulin profiles under `/patients/{patientId}.insulinProfiles`,
+migrate them into `/patients/{patientId}/insulinProfiles/*`:
+
+```bash
+cd ~/HNAS
+npm --prefix functions run migrate:insulin-profiles
+# dry run:
+DRY_RUN=true npm --prefix functions run migrate:insulin-profiles
+```
 
 ### Admin User
 

@@ -81,6 +81,33 @@ class ApiClient {
     });
   }
 
+  Future<DashboardCounts> fetchDashboardCounts({
+    required String date,
+  }) async {
+    final response = await _post('/api/dashboard/counts', <String, dynamic>{
+      'date': date.trim(),
+    });
+
+    int parseIntField(String field) {
+      final value = response[field];
+      if (value is int) {
+        return value;
+      }
+      if (value is num) {
+        return value.toInt();
+      }
+      return 0;
+    }
+
+    return DashboardCounts(
+      totalPatients: parseIntField('totalPatients'),
+      done: parseIntField('done'),
+      missed: parseIntField('missed'),
+      late: parseIntField('late'),
+      skipped: parseIntField('skipped'),
+    );
+  }
+
   Future<String> createPatient({
     required String fullName,
     String? timezone,
