@@ -88,6 +88,10 @@ class MedicineModel {
     this.doseUnit,
     this.scheduleTimes = const <String>[],
     this.active = true,
+    this.startDate,
+    this.recurrenceMode = 'daily',
+    this.recurrenceEvery,
+    this.recurrenceUnit,
   });
 
   final String id;
@@ -97,8 +101,34 @@ class MedicineModel {
   final String? doseUnit;
   final List<String> scheduleTimes;
   final bool active;
+  final String? startDate;
+  final String recurrenceMode;
+  final int? recurrenceEvery;
+  final String? recurrenceUnit;
+
+  bool get isIntervalRecurrence => recurrenceMode == 'interval';
+
+  String get recurrenceLabel {
+    if (!isIntervalRecurrence) {
+      return 'Every day';
+    }
+
+    final every = recurrenceEvery ?? 1;
+    final normalizedUnit = _normalizeRecurrenceUnit(recurrenceUnit) ?? 'days';
+    final singularUnit = normalizedUnit.endsWith('s')
+        ? normalizedUnit.substring(0, normalizedUnit.length - 1)
+        : normalizedUnit;
+    final labelUnit = every == 1 ? singularUnit : normalizedUnit;
+    return 'Each $every $labelUnit';
+  }
 
   factory MedicineModel.fromMap(String id, Map<String, dynamic> map) {
+    final recurrenceMode = _readString(map['recurrenceMode'])?.toLowerCase();
+    final recurrenceEveryRaw = _readInt(map['recurrenceEvery']);
+    final recurrenceEvery = recurrenceEveryRaw != null && recurrenceEveryRaw > 0
+        ? recurrenceEveryRaw
+        : null;
+
     return MedicineModel(
       id: id,
       name: _readString(map['name']) ?? 'Medicine',
@@ -107,6 +137,11 @@ class MedicineModel {
       doseUnit: _readString(map['doseUnit']),
       scheduleTimes: _readScheduleTimes(map),
       active: _readBool(map['active']) ?? true,
+      startDate: _readDateId(map['startDate']),
+      recurrenceMode: recurrenceMode == 'interval' ? 'interval' : 'daily',
+      recurrenceEvery: recurrenceEvery,
+      recurrenceUnit:
+          _normalizeRecurrenceUnit(_readString(map['recurrenceUnit'])),
     );
   }
 }
@@ -647,6 +682,17 @@ String? _readString(Object? value) {
   return null;
 }
 
+String? _readDateId(Object? value) {
+  final parsed = _readString(value);
+  if (parsed == null) {
+    return null;
+  }
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(parsed)) {
+    return parsed;
+  }
+  return null;
+}
+
 String? _readStringOrNum(Object? value) {
   if (value is String && value.trim().isNotEmpty) {
     return value.trim();
@@ -761,4 +807,21 @@ String? _normalizeClockTime(String raw) {
     return null;
   }
   return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+}
+
+String? _normalizeRecurrenceUnit(String? raw) {
+  final normalized = raw?.trim().toLowerCase();
+  switch (normalized) {
+    case 'day':
+    case 'days':
+      return 'days';
+    case 'week':
+    case 'weeks':
+      return 'weeks';
+    case 'month':
+    case 'months':
+      return 'months';
+    default:
+      return null;
+  }
 }

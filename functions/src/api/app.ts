@@ -173,6 +173,17 @@ const ALLOWED_LAB_RESULT_FLAGS = new Set<string>([
   'abnormal',
 ]);
 
+const ALLOWED_RECURRENCE_MODES = new Set<string>([
+  'daily',
+  'interval',
+]);
+
+const ALLOWED_RECURRENCE_UNITS = new Set<string>([
+  'days',
+  'weeks',
+  'months',
+]);
+
 const REPORTS_COLLECTION = 'reports';
 const REPORTS_DAILY_DOC_ID = 'daily';
 const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
@@ -826,9 +837,43 @@ app.post('/api/medicines/create', asyncRoute(async (req, res) => {
   const instructions = readOptionalString(body, 'instructions');
   const doseAmount = readOptionalNumber(body, 'doseAmount');
   const doseUnit = readOptionalString(body, 'doseUnit');
+  const startDate = readOptionalDateId(body, 'startDate');
+  const recurrenceMode = readOptionalRecurrenceMode(body, 'recurrenceMode') ?? 'daily';
+  const recurrenceEvery = readOptionalPositiveInteger(body, 'recurrenceEvery');
+  const recurrenceUnit = readOptionalRecurrenceUnit(body, 'recurrenceUnit');
   const active = readOptionalBoolean(body, 'active') ?? true;
   const scheduleTimes = readOptionalTimeArray(body, 'scheduleTimes');
   const nowIso = new Date().toISOString();
+
+  if (recurrenceMode === 'interval') {
+    if (!startDate) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'startDate is required when recurrenceMode is "interval".',
+      );
+    }
+    if (recurrenceEvery === undefined) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'recurrenceEvery is required when recurrenceMode is "interval".',
+      );
+    }
+    if (!recurrenceUnit) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'recurrenceUnit is required when recurrenceMode is "interval".',
+      );
+    }
+  } else if (recurrenceEvery !== undefined || recurrenceUnit !== undefined) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        'recurrenceEvery and recurrenceUnit are only valid when recurrenceMode is "interval".',
+    );
+  }
 
   const medicineRef = firestore
       .collection('patients')
@@ -851,6 +896,16 @@ app.post('/api/medicines/create', asyncRoute(async (req, res) => {
   }
   if (doseUnit) {
     payload.doseUnit = doseUnit;
+  }
+  if (startDate) {
+    payload.startDate = startDate;
+  }
+  payload.recurrenceMode = recurrenceMode;
+  if (recurrenceMode === 'interval' && recurrenceEvery !== undefined) {
+    payload.recurrenceEvery = recurrenceEvery;
+  }
+  if (recurrenceMode === 'interval' && recurrenceUnit) {
+    payload.recurrenceUnit = recurrenceUnit;
   }
   if (scheduleTimes && scheduleTimes.length > 0) {
     payload.scheduleTimes = scheduleTimes;
@@ -878,10 +933,18 @@ app.post('/api/medicines/update', asyncRoute(async (req, res) => {
       .doc(patientId)
       .collection('medicines')
       .doc(medicineId);
-  await assertDocumentExists(
-      medicineRef,
-      `Medicine "${medicineId}" for patient "${patientId}" was not found.`,
-  );
+  const medicineSnap = await medicineRef.get();
+  if (!medicineSnap.exists) {
+    throw new HttpError(
+        404,
+        'not-found',
+        `Medicine "${medicineId}" for patient "${patientId}" was not found.`,
+    );
+  }
+
+  const existingMedicine = isRecord(medicineSnap.data()) ?
+    medicineSnap.data() as UnknownRecord :
+    {};
 
   const patch: UnknownRecord = {};
   if (hasOwn(body, 'name')) {
@@ -901,6 +964,64 @@ app.post('/api/medicines/update', asyncRoute(async (req, res) => {
   }
   if (hasOwn(body, 'scheduleTimes')) {
     patch.scheduleTimes = readRequiredTimeArray(body, 'scheduleTimes');
+  }
+  if (hasOwn(body, 'startDate')) {
+    patch.startDate = readRequiredDateId(body, 'startDate');
+  }
+  if (hasOwn(body, 'recurrenceMode')) {
+    patch.recurrenceMode = readRequiredRecurrenceMode(body, 'recurrenceMode');
+  }
+  if (hasOwn(body, 'recurrenceEvery')) {
+    patch.recurrenceEvery = readRequiredPositiveInteger(body, 'recurrenceEvery');
+  }
+  if (hasOwn(body, 'recurrenceUnit')) {
+    patch.recurrenceUnit = readRequiredRecurrenceUnit(body, 'recurrenceUnit');
+  }
+
+  const nextRecurrenceMode = hasOwn(body, 'recurrenceMode') ?
+    patch.recurrenceMode as string :
+    readStoredRecurrenceMode(existingMedicine);
+  const nextStartDate = hasOwn(body, 'startDate') ?
+    patch.startDate as string :
+    readStoredDateId(existingMedicine['startDate']);
+  const nextRecurrenceEvery = hasOwn(body, 'recurrenceEvery') ?
+    patch.recurrenceEvery as number :
+    readStoredPositiveInteger(existingMedicine['recurrenceEvery']);
+  const nextRecurrenceUnit = hasOwn(body, 'recurrenceUnit') ?
+    patch.recurrenceUnit as string :
+    readStoredRecurrenceUnit(existingMedicine['recurrenceUnit']);
+
+  if (nextRecurrenceMode === 'interval') {
+    if (!nextStartDate) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'startDate is required when recurrenceMode is "interval".',
+      );
+    }
+    if (nextRecurrenceEvery === undefined) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'recurrenceEvery is required when recurrenceMode is "interval".',
+      );
+    }
+    if (!nextRecurrenceUnit) {
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          'recurrenceUnit is required when recurrenceMode is "interval".',
+      );
+    }
+  } else if (hasOwn(body, 'recurrenceEvery') || hasOwn(body, 'recurrenceUnit')) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        'recurrenceEvery and recurrenceUnit are only valid when recurrenceMode is "interval".',
+    );
+  } else if (hasOwn(body, 'recurrenceMode')) {
+    patch.recurrenceEvery = FieldValue.delete();
+    patch.recurrenceUnit = FieldValue.delete();
   }
 
   if (Object.keys(patch).length === 0) {
@@ -3021,6 +3142,117 @@ function assertDateId(value: string, fieldName: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw new HttpError(400, 'invalid-argument', `${fieldName} must be in YYYY-MM-DD format.`);
   }
+}
+
+function readRequiredDateId(obj: UnknownRecord, key: string): string {
+  const value = readRequiredString(obj, key);
+  assertDateId(value, key);
+  return value;
+}
+
+function readOptionalDateId(obj: UnknownRecord, key: string): string | undefined {
+  const value = readOptionalString(obj, key);
+  if (!value) {
+    return undefined;
+  }
+  assertDateId(value, key);
+  return value;
+}
+
+function readRequiredPositiveInteger(obj: UnknownRecord, key: string): number {
+  const value = readRequiredNumber(obj, key);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new HttpError(400, 'invalid-argument', `${key} must be an integer greater than 0.`);
+  }
+  return value;
+}
+
+function readOptionalPositiveInteger(obj: UnknownRecord, key: string): number | undefined {
+  const value = readOptionalNumber(obj, key);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1) {
+    throw new HttpError(400, 'invalid-argument', `${key} must be an integer greater than 0.`);
+  }
+  return value;
+}
+
+function readRequiredRecurrenceMode(obj: UnknownRecord, key: string): string {
+  const value = readRequiredString(obj, key).toLowerCase();
+  if (!ALLOWED_RECURRENCE_MODES.has(value)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(ALLOWED_RECURRENCE_MODES).join(', ')}.`,
+    );
+  }
+  return value;
+}
+
+function readOptionalRecurrenceMode(obj: UnknownRecord, key: string): string | undefined {
+  if (!hasOwn(obj, key)) {
+    return undefined;
+  }
+  return readRequiredRecurrenceMode(obj, key);
+}
+
+function readRequiredRecurrenceUnit(obj: UnknownRecord, key: string): string {
+  const value = readRequiredString(obj, key).toLowerCase();
+  if (!ALLOWED_RECURRENCE_UNITS.has(value)) {
+    throw new HttpError(
+        400,
+        'invalid-argument',
+        `${key} must be one of: ${Array.from(ALLOWED_RECURRENCE_UNITS).join(', ')}.`,
+    );
+  }
+  return value;
+}
+
+function readOptionalRecurrenceUnit(obj: UnknownRecord, key: string): string | undefined {
+  if (!hasOwn(obj, key)) {
+    return undefined;
+  }
+  return readRequiredRecurrenceUnit(obj, key);
+}
+
+function readStoredDateId(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return undefined;
+  }
+  return trimmed;
+}
+
+function readStoredPositiveInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1) {
+    return undefined;
+  }
+  return value;
+}
+
+function readStoredRecurrenceUnit(value: unknown): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (!ALLOWED_RECURRENCE_UNITS.has(normalized)) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function readStoredRecurrenceMode(record: UnknownRecord): string {
+  const normalized = typeof record.recurrenceMode === 'string' ?
+    record.recurrenceMode.trim().toLowerCase() :
+    '';
+  return normalized === 'interval' ? 'interval' : 'daily';
 }
 
 function toTaskList(value: unknown): Task[] {

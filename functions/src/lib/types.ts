@@ -28,6 +28,10 @@ export interface Medicine {
   doseAmount: number;
   doseUnit: string;
   instructions?: string;
+  startDate?: DateId;
+  recurrenceMode?: 'daily' | 'interval';
+  recurrenceEvery?: number;
+  recurrenceUnit?: 'days' | 'weeks' | 'months';
   active: boolean;
   createdAt: IsoDateTimeString;
   updatedAt: IsoDateTimeString;

@@ -321,6 +321,10 @@ class _MedicinesTab extends ConsumerWidget {
               instructions: draft.instructions,
               doseAmount: draft.doseAmount,
               doseUnit: draft.doseUnit,
+              startDate: draft.startDate,
+              recurrenceMode: draft.recurrenceMode,
+              recurrenceEvery: draft.recurrenceEvery,
+              recurrenceUnit: draft.recurrenceUnit,
               active: draft.active,
               scheduleTimes: draft.scheduleTimes,
             );
@@ -357,6 +361,10 @@ class _MedicinesTab extends ConsumerWidget {
               instructions: draft.instructions,
               doseAmount: draft.doseAmount,
               doseUnit: draft.doseUnit,
+              startDate: draft.startDate,
+              recurrenceMode: draft.recurrenceMode,
+              recurrenceEvery: draft.recurrenceEvery,
+              recurrenceUnit: draft.recurrenceUnit,
               active: draft.active,
               scheduleTimes: draft.scheduleTimes,
             );
@@ -518,6 +526,8 @@ class _MedicinesTab extends ConsumerWidget {
           final schedule = medicine.scheduleTimes.isEmpty
               ? '-'
               : medicine.scheduleTimes.join(', ');
+          final recurrence = medicine.recurrenceLabel;
+          final startDate = medicine.startDate ?? '-';
 
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
@@ -546,6 +556,8 @@ class _MedicinesTab extends ConsumerWidget {
                     const SizedBox(height: 8),
                     _KeyValue(label: 'Dose', value: dose),
                     _KeyValue(label: 'Schedule', value: schedule),
+                    _KeyValue(label: 'Date', value: startDate),
+                    _KeyValue(label: 'Alternative', value: recurrence),
                     _KeyValue(
                       label: 'Instructions',
                       value: medicine.instructions ?? '-',
@@ -1590,6 +1602,12 @@ const List<String> _medicineDoseUnitOptions = <String>[
   'units',
 ];
 
+const List<String> _medicineRecurrenceUnitOptions = <String>[
+  'days',
+  'weeks',
+  'months',
+];
+
 const List<String> _procedureFrequencyOptions = <String>[
   'once',
   'daily',
@@ -1663,6 +1681,10 @@ class _MedicineDraft {
     required this.instructions,
     required this.doseAmount,
     required this.doseUnit,
+    required this.startDate,
+    required this.recurrenceMode,
+    required this.recurrenceEvery,
+    required this.recurrenceUnit,
     required this.active,
     required this.scheduleTimes,
   });
@@ -1671,6 +1693,10 @@ class _MedicineDraft {
   final String? instructions;
   final num? doseAmount;
   final String? doseUnit;
+  final String? startDate;
+  final String recurrenceMode;
+  final int? recurrenceEvery;
+  final String? recurrenceUnit;
   final bool active;
   final List<String> scheduleTimes;
 }
@@ -1691,9 +1717,14 @@ class _MedicineDialogState extends State<_MedicineDialog> {
   late final TextEditingController _nameController;
   late final TextEditingController _instructionsController;
   late final TextEditingController _doseAmountController;
+  late final TextEditingController _recurrenceEveryController;
   late String? _doseUnit;
   late final List<String> _scheduleTimes;
+  late String _recurrenceMode;
+  late String _recurrenceUnit;
+  DateTime? _startDate;
   late bool _active;
+  bool _showStartDateValidationError = false;
 
   @override
   void initState() {
@@ -1709,6 +1740,14 @@ class _MedicineDialogState extends State<_MedicineDialog> {
     _doseUnit = initial?.doseUnit;
     _scheduleTimes = List<String>.from(initial?.scheduleTimes ?? <String>[])
       ..sort();
+    _recurrenceMode =
+        initial?.isIntervalRecurrence == true ? 'interval' : 'daily';
+    _recurrenceUnit =
+        _normalizeMedicineRecurrenceUnit(initial?.recurrenceUnit) ?? 'days';
+    _recurrenceEveryController = TextEditingController(
+      text: (initial?.recurrenceEvery ?? 2).toString(),
+    );
+    _startDate = _parseDateId(initial?.startDate);
     _active = initial?.active ?? true;
   }
 
@@ -1717,6 +1756,7 @@ class _MedicineDialogState extends State<_MedicineDialog> {
     _nameController.dispose();
     _instructionsController.dispose();
     _doseAmountController.dispose();
+    _recurrenceEveryController.dispose();
     super.dispose();
   }
 
@@ -1808,6 +1848,9 @@ class _MedicineDialogState extends State<_MedicineDialog> {
                     });
                   },
                 ),
+                _buildStartDateRow(context),
+                const SizedBox(height: 8),
+                _buildAlternativeEditor(context),
               ],
             ),
           ),
@@ -1834,6 +1877,16 @@ class _MedicineDialogState extends State<_MedicineDialog> {
 
     final instructions = _instructionsController.text.trim();
     final doseRaw = _doseAmountController.text.trim();
+    final recurrenceEveryRaw = _recurrenceEveryController.text.trim();
+    final recurrenceEvery = int.tryParse(recurrenceEveryRaw);
+    final startDate = _startDate == null ? null : _formatDateId(_startDate!);
+
+    if (_recurrenceMode == 'interval' && startDate == null) {
+      setState(() {
+        _showStartDateValidationError = true;
+      });
+      return;
+    }
 
     Navigator.of(context).pop(
       _MedicineDraft(
@@ -1841,6 +1894,10 @@ class _MedicineDialogState extends State<_MedicineDialog> {
         instructions: instructions.isEmpty ? null : instructions,
         doseAmount: doseRaw.isEmpty ? null : num.tryParse(doseRaw),
         doseUnit: _doseUnit,
+        startDate: startDate,
+        recurrenceMode: _recurrenceMode,
+        recurrenceEvery: _recurrenceMode == 'interval' ? recurrenceEvery : null,
+        recurrenceUnit: _recurrenceMode == 'interval' ? _recurrenceUnit : null,
         active: _active,
         scheduleTimes: _scheduleTimes.toList()..sort(),
       ),
@@ -1880,6 +1937,225 @@ class _MedicineDialogState extends State<_MedicineDialog> {
         ..clear()
         ..addAll(deduped);
     });
+  }
+
+  Widget _buildStartDateRow(BuildContext context) {
+    final label = _startDate == null
+        ? 'Add Starting Date of dose'
+        : _formatDateId(_startDate!);
+
+    return Row(
+      children: <Widget>[
+        Expanded(
+          child: Text(
+            'Date',
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+        TextButton(
+          onPressed: _pickStartDate,
+          child: Text(label),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAlternativeEditor(BuildContext context) {
+    final isDaily = _recurrenceMode == 'daily';
+    final isInterval = _recurrenceMode == 'interval';
+    final scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Text(
+          'Alternative',
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: scheme.outlineVariant),
+          ),
+          child: Column(
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  Checkbox(
+                    value: isDaily,
+                    onChanged: (_) => _setRecurrenceMode('daily'),
+                  ),
+                  Expanded(
+                    child: _RecurrenceLabelChip(
+                      label: 'Every day',
+                      active: isDaily,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: isDaily,
+                    onChanged: (value) {
+                      _setRecurrenceMode(value ? 'daily' : 'interval');
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Checkbox(
+                    value: isInterval,
+                    onChanged: (_) => _setRecurrenceMode('interval'),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        _RecurrenceLabelChip(
+                          label: 'Each',
+                          active: isInterval,
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: <Widget>[
+                            SizedBox(
+                              width: 82,
+                              child: TextFormField(
+                                controller: _recurrenceEveryController,
+                                enabled: isInterval,
+                                keyboardType: TextInputType.number,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                ),
+                                validator: (value) {
+                                  if (!isInterval) {
+                                    return null;
+                                  }
+                                  final parsed =
+                                      int.tryParse((value ?? '').trim());
+                                  if (parsed == null || parsed < 1) {
+                                    return '1+';
+                                  }
+                                  return null;
+                                },
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: _recurrenceUnit,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                ),
+                                items: _medicineRecurrenceUnitOptions
+                                    .map(
+                                      (unit) => DropdownMenuItem<String>(
+                                        value: unit,
+                                        child: Text(_toTitleCase(unit)),
+                                      ),
+                                    )
+                                    .toList(),
+                                onChanged: isInterval
+                                    ? (value) {
+                                        if (value == null) {
+                                          return;
+                                        }
+                                        setState(() {
+                                          _recurrenceUnit = value;
+                                        });
+                                      }
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Switch(
+                    value: isInterval,
+                    onChanged: (value) {
+                      _setRecurrenceMode(value ? 'interval' : 'daily');
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        if (isInterval && _showStartDateValidationError && _startDate == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Starting date is required when using interval recurrence.',
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: Theme.of(context).colorScheme.error),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _pickStartDate() async {
+    final initial = _startDate ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: 'Select Starting Date',
+    );
+    if (picked == null) {
+      return;
+    }
+
+    setState(() {
+      _startDate = DateTime(picked.year, picked.month, picked.day);
+      _showStartDateValidationError = false;
+    });
+  }
+
+  void _setRecurrenceMode(String mode) {
+    setState(() {
+      _recurrenceMode = mode == 'interval' ? 'interval' : 'daily';
+      if (_recurrenceMode == 'daily') {
+        _showStartDateValidationError = false;
+      }
+    });
+  }
+}
+
+class _RecurrenceLabelChip extends StatelessWidget {
+  const _RecurrenceLabelChip({
+    required this.label,
+    required this.active,
+  });
+
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 44,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: active ? scheme.surface : scheme.surface.withValues(alpha: 0.8),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: active ? scheme.primary : scheme.outlineVariant,
+        ),
+      ),
+      child: Text(label),
+    );
   }
 }
 
@@ -2430,6 +2706,43 @@ String _formatDateId(DateTime date) {
   final month = date.month.toString().padLeft(2, '0');
   final day = date.day.toString().padLeft(2, '0');
   return '$year-$month-$day';
+}
+
+DateTime? _parseDateId(String? value) {
+  final raw = value?.trim();
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  final parsed = DateTime.tryParse('${raw}T00:00:00');
+  if (parsed == null) {
+    return null;
+  }
+  return DateTime(parsed.year, parsed.month, parsed.day);
+}
+
+String? _normalizeMedicineRecurrenceUnit(String? value) {
+  final normalized = value?.trim().toLowerCase();
+  switch (normalized) {
+    case 'day':
+    case 'days':
+      return 'days';
+    case 'week':
+    case 'weeks':
+      return 'weeks';
+    case 'month':
+    case 'months':
+      return 'months';
+    default:
+      return null;
+  }
+}
+
+String _toTitleCase(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return value;
+  }
+  return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
 }
 
 class _ScheduleTimeEditor extends StatelessWidget {

@@ -22,7 +22,7 @@ interface ScheduleEntry {
 
 export function generateChecklistTasks(input: GenerateChecklistTasksInput): Task[] {
   const tasks: Task[] = [];
-  tasks.push(...buildMedicineTasks(input.medicines));
+  tasks.push(...buildMedicineTasks(input.medicines, input.dateId));
   tasks.push(...buildProcedureTasks(input.procedures));
   tasks.push(...buildRapidInsulinTasks(input.insulinProfiles));
   tasks.push(...buildBasalInsulinTasks(input.insulinProfiles));
@@ -37,10 +37,13 @@ export function generateChecklistTasks(input: GenerateChecklistTasksInput): Task
   });
 }
 
-function buildMedicineTasks(medicines: ChecklistSourceRecord[]): Task[] {
+function buildMedicineTasks(medicines: ChecklistSourceRecord[], dateId: DateId): Task[] {
   const tasks: Task[] = [];
   for (const medicine of medicines) {
     if (!isActive(medicine)) {
+      continue;
+    }
+    if (!isMedicineScheduledForDate(medicine, dateId)) {
       continue;
     }
 
@@ -65,6 +68,60 @@ function buildMedicineTasks(medicines: ChecklistSourceRecord[]): Task[] {
     });
   }
   return tasks;
+}
+
+interface DateParts {
+  year: number;
+  month: number;
+  day: number;
+}
+
+function isMedicineScheduledForDate(
+    medicine: ChecklistSourceRecord,
+    dateId: DateId,
+): boolean {
+  const targetDate = parseDateId(dateId);
+  if (!targetDate) {
+    return true;
+  }
+
+  const startDate = parseDateId(readString(medicine.startDate));
+  if (startDate && compareDateParts(targetDate, startDate) < 0) {
+    return false;
+  }
+
+  const recurrenceMode = readString(medicine.recurrenceMode)?.toLowerCase() ?? 'daily';
+  if (recurrenceMode !== 'interval') {
+    return true;
+  }
+
+  if (!startDate) {
+    return true;
+  }
+
+  const recurrenceEvery = readPositiveInteger(medicine.recurrenceEvery) ?? 1;
+  const recurrenceUnit = normalizeRecurrenceUnit(readString(medicine.recurrenceUnit)) ?? 'days';
+
+  if (recurrenceUnit === 'days') {
+    const dayDiff = diffInDays(startDate, targetDate);
+    return dayDiff >= 0 && dayDiff % recurrenceEvery === 0;
+  }
+
+  if (recurrenceUnit === 'weeks') {
+    const dayDiff = diffInDays(startDate, targetDate);
+    const cycleDays = recurrenceEvery * 7;
+    return dayDiff >= 0 && dayDiff % cycleDays === 0;
+  }
+
+  const monthDiff = diffInMonths(startDate, targetDate);
+  if (monthDiff < 0 || monthDiff % recurrenceEvery !== 0) {
+    return false;
+  }
+  const scheduledDay = Math.min(
+      startDate.day,
+      getDaysInMonth(targetDate.year, targetDate.month),
+  );
+  return targetDate.day === scheduledDay;
 }
 
 function buildProcedureTasks(procedures: ChecklistSourceRecord[]): Task[] {
@@ -283,6 +340,86 @@ function mergeNotes(primary?: string, secondary?: string): string | undefined {
     return `${primaryValue} ${secondaryValue}`;
   }
   return primaryValue ?? secondaryValue;
+}
+
+function parseDateId(value: string | undefined): DateParts | null {
+  if (!value) {
+    return null;
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return null;
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+    return null;
+  }
+  if (month < 1 || month > 12) {
+    return null;
+  }
+
+  const maxDay = getDaysInMonth(year, month);
+  if (day < 1 || day > maxDay) {
+    return null;
+  }
+
+  return {year, month, day};
+}
+
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function compareDateParts(left: DateParts, right: DateParts): number {
+  if (left.year !== right.year) {
+    return left.year - right.year;
+  }
+  if (left.month !== right.month) {
+    return left.month - right.month;
+  }
+  return left.day - right.day;
+}
+
+function toUtcDate(date: DateParts): Date {
+  return new Date(Date.UTC(date.year, date.month - 1, date.day));
+}
+
+function diffInDays(start: DateParts, end: DateParts): number {
+  const millisPerDay = 24 * 60 * 60 * 1000;
+  return Math.floor((toUtcDate(end).getTime() - toUtcDate(start).getTime()) / millisPerDay);
+}
+
+function diffInMonths(start: DateParts, end: DateParts): number {
+  return (end.year - start.year) * 12 + (end.month - start.month);
+}
+
+function readPositiveInteger(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < 1) {
+    return undefined;
+  }
+  return value;
+}
+
+function normalizeRecurrenceUnit(value: string | undefined): 'days' | 'weeks' | 'months' | undefined {
+  switch (value?.toLowerCase()) {
+    case 'day':
+    case 'days':
+      return 'days';
+    case 'week':
+    case 'weeks':
+      return 'weeks';
+    case 'month':
+    case 'months':
+      return 'months';
+    default:
+      return undefined;
+  }
 }
 
 function compactUndefined<T extends Record<string, unknown>>(record: T): T {

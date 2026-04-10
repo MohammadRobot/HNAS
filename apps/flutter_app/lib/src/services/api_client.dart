@@ -429,6 +429,10 @@ class ApiClient {
     String? instructions,
     num? doseAmount,
     String? doseUnit,
+    String? startDate,
+    String recurrenceMode = 'daily',
+    int? recurrenceEvery,
+    String? recurrenceUnit,
     bool active = true,
     List<String>? scheduleTimes,
   }) async {
@@ -440,6 +444,14 @@ class ApiClient {
       if (doseAmount != null) 'doseAmount': doseAmount,
       if (doseUnit != null && doseUnit.trim().isNotEmpty)
         'doseUnit': doseUnit.trim(),
+      if (startDate != null && startDate.trim().isNotEmpty)
+        'startDate': startDate.trim(),
+      if (recurrenceMode.trim().isNotEmpty)
+        'recurrenceMode': recurrenceMode.trim().toLowerCase(),
+      if (recurrenceEvery != null && recurrenceEvery > 0)
+        'recurrenceEvery': recurrenceEvery,
+      if (recurrenceUnit != null && recurrenceUnit.trim().isNotEmpty)
+        'recurrenceUnit': recurrenceUnit.trim().toLowerCase(),
       'active': active,
       if (_cleanStringList(scheduleTimes).isNotEmpty)
         'scheduleTimes': _cleanStringList(scheduleTimes),
@@ -462,6 +474,10 @@ class ApiClient {
     String? instructions,
     num? doseAmount,
     String? doseUnit,
+    String? startDate,
+    String? recurrenceMode,
+    int? recurrenceEvery,
+    String? recurrenceUnit,
     bool? active,
     List<String>? scheduleTimes,
   }) async {
@@ -472,6 +488,13 @@ class ApiClient {
       if (instructions != null) 'instructions': instructions.trim(),
       if (doseAmount != null) 'doseAmount': doseAmount,
       if (doseUnit != null) 'doseUnit': doseUnit.trim(),
+      if (startDate != null) 'startDate': startDate.trim(),
+      if (recurrenceMode != null)
+        'recurrenceMode': recurrenceMode.trim().toLowerCase(),
+      if (recurrenceEvery != null && recurrenceEvery > 0)
+        'recurrenceEvery': recurrenceEvery,
+      if (recurrenceUnit != null)
+        'recurrenceUnit': recurrenceUnit.trim().toLowerCase(),
       if (active != null) 'active': active,
       if (scheduleTimes != null)
         'scheduleTimes': _cleanStringList(scheduleTimes),
