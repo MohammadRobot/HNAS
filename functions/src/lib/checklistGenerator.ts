@@ -11,6 +11,7 @@ export interface GenerateChecklistTasksInput {
   medicines: ChecklistSourceRecord[];
   procedures: ChecklistSourceRecord[];
   insulinProfiles: ChecklistSourceRecord[];
+  healthCheckPlans: ChecklistSourceRecord[];
 }
 
 interface ScheduleEntry {
@@ -26,6 +27,7 @@ export function generateChecklistTasks(input: GenerateChecklistTasksInput): Task
   tasks.push(...buildProcedureTasks(input.procedures));
   tasks.push(...buildRapidInsulinTasks(input.insulinProfiles));
   tasks.push(...buildBasalInsulinTasks(input.insulinProfiles));
+  tasks.push(...buildHealthCheckTasks(input.healthCheckPlans));
 
   return tasks.sort((left, right) => {
     const leftTime = left.scheduledTime ?? '99:99';
@@ -206,6 +208,38 @@ function buildBasalInsulinTasks(insulinProfiles: ChecklistSourceRecord[]): Task[
   return tasks;
 }
 
+function buildHealthCheckTasks(healthCheckPlans: ChecklistSourceRecord[]): Task[] {
+  const tasks: Task[] = [];
+  for (const plan of healthCheckPlans) {
+    if (!isActive(plan)) {
+      continue;
+    }
+
+    const label = readString(plan.label) ?? 'Health Check';
+    const notes = buildHealthCheckNotes(
+        normalizeHealthCheckTiming(readString(plan.timing)),
+        readString(plan.notes),
+    );
+
+    tasks.push(compactUndefined({
+      id: buildTaskId(
+          'health_check',
+          plan.id,
+          readString(plan.timing) ?? 'daily',
+          0,
+      ),
+      type: 'health_check',
+      healthCheckPlanId: plan.id,
+      title: `Health Check: ${label}`,
+      required: true,
+      itemType: readString(plan.itemType),
+      timing: normalizeHealthCheckTiming(readString(plan.timing)),
+      notes,
+    }) as unknown as Task);
+  }
+  return tasks;
+}
+
 function extractScheduleEntries(source: ChecklistSourceRecord): ScheduleEntry[] {
   const entries: ScheduleEntry[] = [];
   collectEntries(entries, source.time);
@@ -340,6 +374,33 @@ function mergeNotes(primary?: string, secondary?: string): string | undefined {
     return `${primaryValue} ${secondaryValue}`;
   }
   return primaryValue ?? secondaryValue;
+}
+
+function buildHealthCheckNotes(
+    timing: string | undefined,
+    notes: string | undefined,
+): string | undefined {
+  const timingNote = timing === 'before_food' ?
+    'Complete before food and record in Health Checks.' :
+    timing === 'after_food' ?
+      'Complete after food and record in Health Checks.' :
+      'Record completion in Health Checks.';
+  return mergeNotes(notes, timingNote);
+}
+
+function normalizeHealthCheckTiming(
+    value: string | undefined,
+): 'before_food' | 'after_food' | 'anytime' | undefined {
+  switch (value?.trim().toLowerCase()) {
+    case 'before_food':
+      return 'before_food';
+    case 'after_food':
+      return 'after_food';
+    case 'anytime':
+      return 'anytime';
+    default:
+      return undefined;
+  }
 }
 
 function parseDateId(value: string | undefined): DateParts | null {

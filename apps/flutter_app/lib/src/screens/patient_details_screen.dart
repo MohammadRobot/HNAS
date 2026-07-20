@@ -2,6 +2,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../app_localizations.dart';
 import '../models.dart';
 import '../providers.dart';
 import '../services/insulin_preview.dart';
@@ -17,33 +18,38 @@ class PatientDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (patientId.isEmpty) {
-      return const Scaffold(
-        body: Center(child: Text('Invalid patient id.')),
+      return Scaffold(
+        body: Center(
+          child: Builder(
+            builder: (ctx) => Text(AppLocalizations.of(ctx).invalidPatientId),
+          ),
+        ),
       );
     }
 
     final patientAsync = ref.watch(patientProvider(patientId));
 
+    final l = AppLocalizations.of(context);
     return DefaultTabController(
       length: 8,
       child: Scaffold(
         appBar: AppBar(
           title: patientAsync.when(
-            data: (patient) => Text(patient?.fullName ?? 'Patient'),
-            loading: () => const Text('Patient'),
-            error: (_, __) => const Text('Patient'),
+            data: (patient) => Text(patient?.fullName ?? l.patient),
+            loading: () => Text(l.patient),
+            error: (_, __) => Text(l.patient),
           ),
-          bottom: const TabBar(
+          bottom: TabBar(
             isScrollable: true,
             tabs: <Widget>[
-              Tab(text: 'Overview'),
-              Tab(text: 'Medications'),
-              Tab(text: 'Procedures'),
-              Tab(text: 'Lab Tests'),
-              Tab(text: 'Checklist'),
-              Tab(text: 'Health Checks'),
-              Tab(text: 'Reports'),
-              Tab(text: 'AI Assistant'),
+              Tab(text: l.tabOverview),
+              Tab(text: l.tabMedications),
+              Tab(text: l.tabProcedures),
+              Tab(text: l.tabLabTests),
+              Tab(text: l.tabChecklist),
+              Tab(text: l.tabHealthChecks),
+              Tab(text: l.tabReports),
+              Tab(text: l.tabAiAssistant),
             ],
           ),
         ),
@@ -71,6 +77,7 @@ class _OverviewTab extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final l = AppLocalizations.of(context);
     final patientAsync = ref.watch(patientProvider(patientId));
     final todayReportAsync = ref.watch(todayReportProvider(patientId));
     final healthChecksAsync = ref.watch(healthChecksProvider(patientId));
@@ -81,10 +88,10 @@ class _OverviewTab extends ConsumerWidget {
         patientAsync.when(
           data: (patient) {
             if (patient == null) {
-              return const Card(
+              return Card(
                 child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('Patient not found.'),
+                  padding: const EdgeInsets.all(16),
+                  child: Text(l.notFound),
                 ),
               );
             }
@@ -104,42 +111,44 @@ class _OverviewTab extends ConsumerWidget {
                           ),
                         ),
                         Chip(
-                          label: Text(patient.active ? 'Active' : 'Inactive'),
+                          label: Text(
+                            patient.active ? l.active : l.inactive,
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     _KeyValue(
-                        label: 'Timezone', value: patient.timezone ?? '-'),
-                    _KeyValue(label: 'Agency', value: patient.agencyId ?? '-'),
+                        label: l.timezone, value: patient.timezone ?? '-'),
+                    _KeyValue(label: l.agency, value: patient.agencyId ?? '-'),
                     _KeyValue(
-                      label: 'Risk Flags',
+                      label: l.riskFlags,
                       value: patient.riskFlags.isEmpty
-                          ? 'None'
+                          ? l.none
                           : patient.riskFlags.join(', '),
                     ),
                     _KeyValue(
-                      label: 'Diagnosis',
+                      label: l.diagnosis,
                       value: patient.diagnosis.isEmpty
-                          ? 'None'
+                          ? l.none
                           : patient.diagnosis.join(', '),
                     ),
                     _KeyValue(
-                      label: 'Date of Birth',
+                      label: l.dateOfBirth,
                       value: patient.dateOfBirth ?? '-',
                     ),
                     _KeyValue(
-                      label: 'Gender',
+                      label: l.gender,
                       value: patient.gender == null
                           ? '-'
                           : _displayGender(patient.gender!),
                     ),
                     _KeyValue(
-                      label: 'Phone',
+                      label: l.phone,
                       value: patient.phoneNumber ?? '-',
                     ),
                     _KeyValue(
-                      label: 'Emergency Contact',
+                      label: l.emergencyContact,
                       value: [
                         if (patient.emergencyContactName != null)
                           patient.emergencyContactName!,
@@ -155,17 +164,17 @@ class _OverviewTab extends ConsumerWidget {
                             ].join(' • '),
                     ),
                     _KeyValue(
-                      label: 'Address',
+                      label: l.address,
                       value: patient.address ?? '-',
                     ),
                     _KeyValue(
-                      label: 'Allergies',
+                      label: l.allergies,
                       value: patient.allergies.isEmpty
-                          ? 'None'
+                          ? l.none
                           : patient.allergies.join(', '),
                     ),
                     _KeyValue(
-                      label: 'Notes',
+                      label: l.notes,
                       value: patient.notes ?? '-',
                     ),
                   ],
@@ -177,7 +186,7 @@ class _OverviewTab extends ConsumerWidget {
           error: (error, _) => Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: Text('Unable to load patient: $error'),
+              child: Text('${l.unableToLoadProfile}: $error'),
             ),
           ),
         ),
@@ -1636,6 +1645,19 @@ const List<String> _labResultFlagOptions = <String>[
   'abnormal',
 ];
 
+const List<String> _healthCheckPlanItemTypes = <String>[
+  'blood_pressure',
+  'blood_glucose',
+  'wounds',
+  'other',
+];
+
+const List<String> _healthCheckPlanTimingOptions = <String>[
+  'before_food',
+  'after_food',
+  'anytime',
+];
+
 class _TabActionHeader extends StatelessWidget {
   const _TabActionHeader({
     required this.label,
@@ -2400,18 +2422,76 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
     'snack',
     'none',
   ];
+  static const _noInsulinValue = '__none__';
+  static const _customInsulinValue = '__custom__';
+  static const _customSlidingScaleValue = '__custom__';
+  static const Map<String, List<String>> _insulinOptionsByType =
+      <String, List<String>>{
+    'rapid': <String>[
+      'Humalog',
+      'NovoLog',
+      'Apidra',
+      'Fiasp',
+      'Lyumjev',
+    ],
+    'basal': <String>[
+      'Lantus',
+      'Levemir',
+      'Tresiba',
+      'Toujeo',
+      'Basaglar',
+    ],
+  };
+  static const Map<String, List<String>> _quickTimesByType =
+      <String, List<String>>{
+    'rapid': <String>['08:00', '13:00', '19:00'],
+    'basal': <String>['08:00', '21:00'],
+  };
+  static const List<_SlidingScalePreset> _slidingScalePresets =
+      <_SlidingScalePreset>[
+    _SlidingScalePreset(
+      id: 'none',
+      label: 'None',
+      thresholds: <num>[],
+    ),
+    _SlidingScalePreset(
+      id: 'standard',
+      label: 'Standard (150 / 200 / 250)',
+      thresholds: <num>[150, 200, 250],
+    ),
+    _SlidingScalePreset(
+      id: 'tight',
+      label: 'Tight (140 / 180 / 220 / 260)',
+      thresholds: <num>[140, 180, 220, 260],
+    ),
+    _SlidingScalePreset(
+      id: 'gentle',
+      label: 'Gentle (160 / 220 / 280)',
+      thresholds: <num>[160, 220, 280],
+    ),
+    _SlidingScalePreset(
+      id: _customSlidingScaleValue,
+      label: 'Custom',
+      thresholds: <num>[],
+    ),
+  ];
 
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _labelController;
-  late final TextEditingController _insulinNameController;
+  late final TextEditingController _customInsulinNameController;
   late final TextEditingController _notesController;
   late final TextEditingController _slidingScaleController;
-  late final TextEditingController _defaultBaseController;
-  late final TextEditingController _fixedUnitsController;
   late final Map<String, TextEditingController> _mealBaseControllers;
   late final List<String> _scheduleTimes;
   late String _type;
+  late String _selectedInsulinOption;
+  late String _selectedSlidingScalePreset;
   late bool _active;
+  late bool _showAdvanced;
+  late double _defaultBaseUnitsValue;
+  late double _fixedUnitsValue;
+  late bool _defaultBaseUnitsTouched;
+  late bool _fixedUnitsTouched;
 
   @override
   void initState() {
@@ -2420,38 +2500,50 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
     _type = initial?.type == 'basal' ? 'basal' : 'rapid';
     _active = initial?.active ?? true;
 
-    _labelController = TextEditingController(text: initial?.label ?? '');
-    _insulinNameController = TextEditingController(
-      text: initial?.insulinName ?? '',
+    final initialGeneratedLabel = _generatedLabel(
+      type: _type,
+      insulinName: initial?.insulinName,
+    );
+    _labelController = TextEditingController(
+      text: initial != null && initial.label.trim() != initialGeneratedLabel
+          ? initial.label
+          : '',
+    );
+    _selectedInsulinOption = _resolveInitialInsulinOption(initial?.insulinName);
+    _customInsulinNameController = TextEditingController(
+      text: _selectedInsulinOption == _customInsulinValue
+          ? initial?.insulinName ?? ''
+          : '',
     );
     _scheduleTimes = List<String>.from(initial?.scheduleTimes ?? <String>[])
       ..sort();
     _notesController = TextEditingController(text: initial?.notes ?? '');
+    _selectedSlidingScalePreset =
+        _matchSlidingScalePreset(initial?.slidingScaleMgdl ?? const <num>[]);
     _slidingScaleController = TextEditingController(
-      text: initial?.slidingScaleMgdl.join(', ') ?? '',
+      text: _selectedSlidingScalePreset == _customSlidingScaleValue
+          ? initial?.slidingScaleMgdl.join(', ') ?? ''
+          : '',
     );
-    _defaultBaseController = TextEditingController(
-      text: initial?.defaultBaseUnits?.toString() ?? '',
-    );
-    _fixedUnitsController = TextEditingController(
-      text: initial?.fixedUnits?.toString() ?? '',
-    );
+    _defaultBaseUnitsValue = initial?.defaultBaseUnits?.toDouble() ?? 0;
+    _fixedUnitsValue = initial?.fixedUnits?.toDouble() ?? 0;
+    _defaultBaseUnitsTouched = initial?.defaultBaseUnits != null;
+    _fixedUnitsTouched = initial?.fixedUnits != null;
     _mealBaseControllers = <String, TextEditingController>{
       for (final tag in _mealTags)
         tag: TextEditingController(
           text: initial?.mealBaseUnits[tag]?.toString() ?? '',
         ),
     };
+    _showAdvanced = _shouldShowAdvancedInitially(initial);
   }
 
   @override
   void dispose() {
     _labelController.dispose();
-    _insulinNameController.dispose();
+    _customInsulinNameController.dispose();
     _notesController.dispose();
     _slidingScaleController.dispose();
-    _defaultBaseController.dispose();
-    _fixedUnitsController.dispose();
     for (final controller in _mealBaseControllers.values) {
       controller.dispose();
     }
@@ -2461,6 +2553,7 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.initialValue != null;
+    final quickTimes = _quickTimesByType[_type] ?? const <String>[];
     return AlertDialog(
       title: Text(isEditing ? 'Edit Insulin Profile' : 'Add Insulin Profile'),
       content: SizedBox(
@@ -2470,6 +2563,7 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 DropdownButtonFormField<String>(
                   initialValue: _type,
@@ -2484,109 +2578,203 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
                     }
                     setState(() {
                       _type = value;
+                      _syncInsulinSelectionForType();
                     });
                   },
                 ),
                 const SizedBox(height: 10),
-                TextFormField(
-                  controller: _labelController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(labelText: 'Label'),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Label is required.';
+                DropdownButtonFormField<String>(
+                  initialValue: _selectedInsulinOption,
+                  decoration: const InputDecoration(labelText: 'Insulin'),
+                  items: _buildInsulinItems(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
                     }
-                    return null;
+                    setState(() {
+                      _selectedInsulinOption = value;
+                    });
                   },
                 ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _insulinNameController,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Insulin Name (optional)',
+                if (_selectedInsulinOption == _customInsulinValue) ...<Widget>[
+                  const SizedBox(height: 10),
+                  TextFormField(
+                    controller: _customInsulinNameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom insulin name (optional)',
+                    ),
+                    onChanged: (_) => setState(() {}),
                   ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  'Profile name: ${_resolveLabel()}',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
                 const SizedBox(height: 10),
                 _ScheduleTimeEditor(
-                  label: 'Schedule Times',
+                  label: 'Dose Times',
                   times: _scheduleTimes,
                   onAddTime: _pickAndAddScheduleTime,
                   onRemoveTime: (time) {
                     setState(() {
-                      _scheduleTimes.remove(time);
+                      _setScheduleTimes(
+                        _scheduleTimes.where((entry) => entry != time),
+                      );
                     });
                   },
                 ),
+                if (quickTimes.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Quick picks',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: quickTimes
+                        .map(
+                          (time) => FilterChip(
+                            label: Text(time),
+                            selected: _scheduleTimes.contains(time),
+                            onSelected: (_) => _toggleScheduleTime(time),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                ],
                 const SizedBox(height: 10),
                 if (_type == 'rapid') ...<Widget>[
-                  TextFormField(
-                    controller: _slidingScaleController,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(
-                      labelText: 'Sliding Scale mg/dL (optional)',
-                      hintText: '150, 200, 250',
+                  _DoseSliderField(
+                    label: 'Typical meal dose',
+                    value: _defaultBaseUnitsValue,
+                    max: _doseSliderMax(
+                      _defaultBaseUnitsValue,
+                      fallback: 20,
                     ),
-                    validator: (value) {
-                      try {
-                        _parseNumberCsv(value ?? '');
-                        return null;
-                      } catch (_) {
-                        return 'Use comma-separated numbers.';
-                      }
+                    helperText:
+                        'Leave at 0 if the dose should come only from meal overrides.',
+                    onChanged: (value) {
+                      setState(() {
+                        _defaultBaseUnitsValue = value;
+                        _defaultBaseUnitsTouched = true;
+                      });
                     },
                   ),
                   const SizedBox(height: 10),
-                  TextFormField(
-                    controller: _defaultBaseController,
-                    textInputAction: TextInputAction.next,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
+                  DropdownButtonFormField<String>(
+                    initialValue: _selectedSlidingScalePreset,
                     decoration: const InputDecoration(
-                      labelText: 'Default Base Units (optional)',
+                      labelText: 'Sliding scale',
                     ),
-                    validator: _optionalNumberValidator,
+                    items: _buildSlidingScaleItems(),
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+                      setState(() {
+                        _selectedSlidingScalePreset = value;
+                      });
+                    },
                   ),
-                  const SizedBox(height: 10),
-                  ..._mealTags.map((tag) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
+                  if (_selectedSlidingScalePreset == _customSlidingScaleValue)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
                       child: TextFormField(
-                        controller: _mealBaseControllers[tag],
+                        controller: _slidingScaleController,
                         textInputAction: TextInputAction.next,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Custom thresholds',
+                          hintText: '150, 200, 250',
                         ),
-                        decoration: InputDecoration(
-                          labelText: 'Meal Base: $tag (optional)',
-                        ),
-                        validator: _optionalNumberValidator,
+                        validator: (value) {
+                          try {
+                            _parseNumberCsv(value ?? '');
+                            return null;
+                          } catch (_) {
+                            return 'Use comma-separated numbers.';
+                          }
+                        },
                       ),
-                    );
-                  }),
+                    ),
                 ] else ...<Widget>[
-                  TextFormField(
-                    controller: _fixedUnitsController,
-                    textInputAction: TextInputAction.next,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: const InputDecoration(
-                      labelText: 'Fixed Units (optional)',
-                    ),
-                    validator: _optionalNumberValidator,
+                  _DoseSliderField(
+                    label: 'Daily dose',
+                    value: _fixedUnitsValue,
+                    max: _doseSliderMax(_fixedUnitsValue, fallback: 40),
+                    helperText:
+                        'Leave at 0 if this profile should not use a fixed daily dose.',
+                    onChanged: (value) {
+                      setState(() {
+                        _fixedUnitsValue = value;
+                        _fixedUnitsTouched = true;
+                      });
+                    },
                   ),
                 ],
-                TextFormField(
-                  controller: _notesController,
-                  minLines: 2,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'Notes (optional)',
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _showAdvanced = !_showAdvanced;
+                    });
+                  },
+                  icon: Icon(
+                    _showAdvanced ? Icons.expand_less : Icons.tune_outlined,
+                  ),
+                  label: Text(
+                    _showAdvanced
+                        ? 'Hide advanced options'
+                        : 'Show advanced options',
                   ),
                 ),
-                const SizedBox(height: 8),
+                if (_showAdvanced) ...<Widget>[
+                  TextFormField(
+                    controller: _labelController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: 'Custom display name (optional)',
+                      hintText: 'Defaults to the insulin name',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  if (_type == 'rapid') ...<Widget>[
+                    const SizedBox(height: 10),
+                    Text(
+                      'Meal-specific overrides',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 10),
+                    ..._mealTags.map((tag) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: TextFormField(
+                          controller: _mealBaseControllers[tag],
+                          textInputAction: TextInputAction.next,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          decoration: InputDecoration(
+                            labelText: '${_mealTagLabel(tag)} dose (optional)',
+                          ),
+                          validator: _optionalNumberValidator,
+                        ),
+                      );
+                    }),
+                  ],
+                  TextFormField(
+                    controller: _notesController,
+                    minLines: 2,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Notes (optional)',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Active'),
@@ -2641,27 +2829,23 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
       }
     }
 
-    final insulinName = _insulinNameController.text.trim();
     final notes = _notesController.text.trim();
-    final defaultBaseRaw = _defaultBaseController.text.trim();
-    final fixedUnitsRaw = _fixedUnitsController.text.trim();
 
     Navigator.of(context).pop(
       _InsulinProfileDraft(
         type: _type,
-        label: _labelController.text.trim(),
-        insulinName: insulinName.isEmpty ? null : insulinName,
+        label: _resolveLabel(),
+        insulinName: _resolveInsulinName(),
         active: _active,
         scheduleTimes: _scheduleTimes.toList()..sort(),
-        slidingScaleMgdl: _type == 'rapid'
-            ? _parseNumberCsv(_slidingScaleController.text)
-            : const <num>[],
+        slidingScaleMgdl:
+            _type == 'rapid' ? _resolveSlidingScaleMgdl() : const <num>[],
         mealBaseUnits: _type == 'rapid' ? mealBaseUnits : const <String, num>{},
-        defaultBaseUnits: _type == 'rapid' && defaultBaseRaw.isNotEmpty
-            ? num.tryParse(defaultBaseRaw)
+        defaultBaseUnits: _type == 'rapid' && _shouldPersistDefaultBaseUnits()
+            ? _defaultBaseUnitsValue
             : null,
-        fixedUnits: _type == 'basal' && fixedUnitsRaw.isNotEmpty
-            ? num.tryParse(fixedUnitsRaw)
+        fixedUnits: _type == 'basal' && _shouldPersistFixedUnits()
+            ? _fixedUnitsValue
             : null,
         notes: notes.isEmpty ? null : notes,
       ),
@@ -2675,12 +2859,274 @@ class _InsulinProfileDialogState extends State<_InsulinProfileDialog> {
     }
 
     setState(() {
-      final deduped = <String>{..._scheduleTimes, pickedTime}.toList()..sort();
-      _scheduleTimes
-        ..clear()
-        ..addAll(deduped);
+      _setScheduleTimes(<String>[..._scheduleTimes, pickedTime]);
     });
   }
+
+  List<DropdownMenuItem<String>> _buildInsulinItems() {
+    final options = _insulinOptionsByType[_type] ?? const <String>[];
+    return <DropdownMenuItem<String>>[
+      const DropdownMenuItem<String>(
+        value: _noInsulinValue,
+        child: Text('Not set'),
+      ),
+      ...options.map(
+        (value) => DropdownMenuItem<String>(
+          value: value,
+          child: Text(value),
+        ),
+      ),
+      const DropdownMenuItem<String>(
+        value: _customInsulinValue,
+        child: Text('Custom'),
+      ),
+    ];
+  }
+
+  List<DropdownMenuItem<String>> _buildSlidingScaleItems() {
+    return _slidingScalePresets
+        .map(
+          (preset) => DropdownMenuItem<String>(
+            value: preset.id,
+            child: Text(preset.label),
+          ),
+        )
+        .toList();
+  }
+
+  String _resolveInitialInsulinOption(String? insulinName) {
+    final normalized = insulinName?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return _noInsulinValue;
+    }
+    final options = _insulinOptionsByType[_type] ?? const <String>[];
+    if (options.contains(normalized)) {
+      return normalized;
+    }
+    return _customInsulinValue;
+  }
+
+  void _syncInsulinSelectionForType() {
+    final options = _insulinOptionsByType[_type] ?? const <String>[];
+    if (_selectedInsulinOption == _noInsulinValue ||
+        _selectedInsulinOption == _customInsulinValue) {
+      return;
+    }
+    if (!options.contains(_selectedInsulinOption)) {
+      _selectedInsulinOption = _customInsulinNameController.text.trim().isEmpty
+          ? _noInsulinValue
+          : _customInsulinValue;
+    }
+  }
+
+  bool _shouldShowAdvancedInitially(InsulinProfileModel? initial) {
+    if (initial == null) {
+      return false;
+    }
+
+    final generatedLabel = _generatedLabel(
+      type: initial.type == 'basal' ? 'basal' : 'rapid',
+      insulinName: initial.insulinName,
+    );
+    return initial.label.trim() != generatedLabel ||
+        _selectedInsulinOption == _customInsulinValue ||
+        _selectedSlidingScalePreset == _customSlidingScaleValue ||
+        initial.mealBaseUnits.isNotEmpty ||
+        (initial.notes?.trim().isNotEmpty ?? false);
+  }
+
+  void _toggleScheduleTime(String time) {
+    setState(() {
+      if (_scheduleTimes.contains(time)) {
+        _setScheduleTimes(_scheduleTimes.where((entry) => entry != time));
+        return;
+      }
+      _setScheduleTimes(<String>[..._scheduleTimes, time]);
+    });
+  }
+
+  void _setScheduleTimes(Iterable<String> times) {
+    final normalized = <String>{...times}.toList()..sort();
+    _scheduleTimes
+      ..clear()
+      ..addAll(normalized);
+  }
+
+  String _matchSlidingScalePreset(List<num> values) {
+    final normalized = _normalizeThresholds(values);
+    for (final preset in _slidingScalePresets) {
+      if (preset.id == _customSlidingScaleValue) {
+        continue;
+      }
+      if (_sameThresholds(normalized, preset.thresholds)) {
+        return preset.id;
+      }
+    }
+    return normalized.isEmpty ? 'none' : _customSlidingScaleValue;
+  }
+
+  List<num> _normalizeThresholds(List<num> values) {
+    return values
+        .map((value) => value.toDouble())
+        .where((value) => value.isFinite && value >= 0)
+        .toSet()
+        .toList()
+      ..sort();
+  }
+
+  bool _sameThresholds(List<num> left, List<num> right) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      if (left[index].toDouble() != right[index].toDouble()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  double _doseSliderMax(double current, {required double fallback}) {
+    final safeCurrent = current.isFinite ? current : 0;
+    return max(fallback, safeCurrent.ceilToDouble() + 10).toDouble();
+  }
+
+  String _mealTagLabel(String tag) {
+    if (tag == 'none') {
+      return 'Other / none';
+    }
+    return _toTitleCase(tag);
+  }
+
+  String? _resolveInsulinName() {
+    if (_selectedInsulinOption == _noInsulinValue) {
+      return null;
+    }
+    if (_selectedInsulinOption == _customInsulinValue) {
+      final customName = _customInsulinNameController.text.trim();
+      return customName.isEmpty ? null : customName;
+    }
+    return _selectedInsulinOption;
+  }
+
+  String _resolveLabel() {
+    final customLabel = _labelController.text.trim();
+    if (customLabel.isNotEmpty) {
+      return customLabel;
+    }
+    return _generatedLabel(
+      type: _type,
+      insulinName: _resolveInsulinName(),
+    );
+  }
+
+  String _generatedLabel({
+    required String type,
+    String? insulinName,
+  }) {
+    final normalizedInsulinName = insulinName?.trim();
+    if (normalizedInsulinName != null && normalizedInsulinName.isNotEmpty) {
+      return normalizedInsulinName;
+    }
+    return type == 'basal' ? 'Basal Insulin' : 'Rapid Insulin';
+  }
+
+  List<num> _resolveSlidingScaleMgdl() {
+    if (_selectedSlidingScalePreset == _customSlidingScaleValue) {
+      return _parseNumberCsv(_slidingScaleController.text);
+    }
+
+    for (final preset in _slidingScalePresets) {
+      if (preset.id == _selectedSlidingScalePreset) {
+        return List<num>.from(preset.thresholds);
+      }
+    }
+
+    return const <num>[];
+  }
+
+  bool _shouldPersistDefaultBaseUnits() {
+    return _defaultBaseUnitsTouched ||
+        widget.initialValue?.defaultBaseUnits != null;
+  }
+
+  bool _shouldPersistFixedUnits() {
+    return _fixedUnitsTouched || widget.initialValue?.fixedUnits != null;
+  }
+}
+
+class _SlidingScalePreset {
+  const _SlidingScalePreset({
+    required this.id,
+    required this.label,
+    required this.thresholds,
+  });
+
+  final String id;
+  final String label;
+  final List<num> thresholds;
+}
+
+class _DoseSliderField extends StatelessWidget {
+  const _DoseSliderField({
+    required this.label,
+    required this.value,
+    required this.max,
+    required this.onChanged,
+    this.helperText,
+  });
+
+  final String label;
+  final double value;
+  final double max;
+  final ValueChanged<double> onChanged;
+  final String? helperText;
+
+  @override
+  Widget build(BuildContext context) {
+    final boundedMax = max < 1 ? 1.0 : max;
+    final boundedValue = value.clamp(0, boundedMax).toDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: <Widget>[
+        Row(
+          children: <Widget>[
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+            ),
+            Text(
+              '${_formatDoseValue(boundedValue)} units',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ),
+        Slider(
+          value: boundedValue,
+          min: 0,
+          max: boundedMax,
+          divisions: (boundedMax * 2).round(),
+          label: '${_formatDoseValue(boundedValue)} units',
+          onChanged: onChanged,
+        ),
+        if (helperText != null)
+          Text(
+            helperText!,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+      ],
+    );
+  }
+}
+
+String _formatDoseValue(double value) {
+  if (value == value.roundToDouble()) {
+    return value.toStringAsFixed(0);
+  }
+  return value.toStringAsFixed(1);
 }
 
 Future<String?> _pickScheduleTime(BuildContext context) async {
@@ -2743,6 +3189,66 @@ String _toTitleCase(String value) {
     return value;
   }
   return '${trimmed[0].toUpperCase()}${trimmed.substring(1)}';
+}
+
+String _healthCheckPlanItemLabel(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'blood_pressure':
+      return 'Blood Pressure / الضغط';
+    case 'blood_glucose':
+      return 'Blood Glucose / السكري';
+    case 'wounds':
+      return 'Wounds / الجروح';
+    case 'other':
+      return 'Other / غير ذلك';
+    default:
+      return _toTitleCase(value.replaceAll('_', ' '));
+  }
+}
+
+String _defaultHealthCheckPlanLabel(String itemType) {
+  switch (itemType.trim().toLowerCase()) {
+    case 'blood_pressure':
+      return 'Blood Pressure';
+    case 'blood_glucose':
+      return 'Blood Glucose';
+    case 'wounds':
+      return 'Wounds';
+    case 'other':
+      return 'Other';
+    default:
+      return 'Health Check';
+  }
+}
+
+String _healthCheckPlanTimingLabel(String value) {
+  switch (value.trim().toLowerCase()) {
+    case 'before_food':
+      return 'Before food';
+    case 'after_food':
+      return 'After food';
+    case 'anytime':
+      return 'Any time';
+    default:
+      return _toTitleCase(value.replaceAll('_', ' '));
+  }
+}
+
+String _checklistTaskTypeLabel(ChecklistTaskModel task) {
+  switch (task.type.trim().toLowerCase()) {
+    case 'medicine':
+      return 'Medicine';
+    case 'procedure':
+      return 'Procedure';
+    case 'insulin_rapid':
+      return 'Rapid insulin';
+    case 'insulin_basal':
+      return 'Basal insulin';
+    case 'health_check':
+      return 'Health check';
+    default:
+      return _toTitleCase(task.type.replaceAll('_', ' '));
+  }
 }
 
 class _ScheduleTimeEditor extends StatelessWidget {
@@ -3093,7 +3599,9 @@ class _ChecklistTabState extends ConsumerState<_ChecklistTab> {
                   [
                     if (task.scheduledTime != null)
                       'Time: ${task.scheduledTime}',
-                    'Type: ${task.type}',
+                    'Type: ${_checklistTaskTypeLabel(task)}',
+                    if (task.isHealthCheck && task.healthCheckTiming != null)
+                      'Timing: ${_healthCheckPlanTimingLabel(task.healthCheckTiming!)}',
                   ].join(' | '),
                 ),
                 if (task.notes != null && task.notes!.isNotEmpty) ...<Widget>[
@@ -3303,6 +3811,22 @@ class _HealthCheckDraft {
   final String? notes;
 }
 
+class _HealthCheckPlanDraft {
+  const _HealthCheckPlanDraft({
+    required this.label,
+    required this.itemType,
+    required this.timing,
+    required this.active,
+    required this.notes,
+  });
+
+  final String label;
+  final String itemType;
+  final String timing;
+  final bool active;
+  final String? notes;
+}
+
 class _HealthChecksTab extends ConsumerWidget {
   const _HealthChecksTab({required this.patientId});
 
@@ -3313,7 +3837,9 @@ class _HealthChecksTab extends ConsumerWidget {
     final role = ref.watch(userProfileProvider).value?.role;
     final canRecord =
         role == 'admin' || role == 'supervisor' || role == 'nurse';
+    final canManagePlans = _canManageRecords(role);
     final checksAsync = ref.watch(healthChecksProvider(patientId));
+    final plansAsync = ref.watch(healthCheckPlansProvider(patientId));
 
     Future<void> createHealthCheck() async {
       final draft = await showDialog<_HealthCheckDraft>(
@@ -3352,108 +3878,271 @@ class _HealthChecksTab extends ConsumerWidget {
       }
     }
 
-    return checksAsync.when(
-      data: (checks) {
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: <Widget>[
-            if (canRecord)
-              _TabActionHeader(
-                label: 'Regular Health Checks',
-                actionLabel: 'Add Health Check',
-                onPressed: createHealthCheck,
-              ),
-            if (checks.isEmpty)
-              const Card(
-                child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No health checks recorded yet.'),
-                ),
-              ),
-            ...checks.map((check) {
-              final bp = check.bloodPressureSystolic != null &&
-                      check.bloodPressureDiastolic != null
-                  ? '${check.bloodPressureSystolic}/${check.bloodPressureDiastolic}'
-                  : '-';
-              final checkedAt = _formatIsoDateTime(check.checkedAt);
+    Future<void> createHealthCheckPlan() async {
+      final draft = await showDialog<_HealthCheckPlanDraft>(
+        context: context,
+        builder: (_) => const _HealthCheckPlanDialog(),
+      );
+      if (draft == null) {
+        return;
+      }
 
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: <Widget>[
-                        Row(
-                          children: <Widget>[
-                            Expanded(
-                              child: Text(
-                                checkedAt,
-                                style: Theme.of(context).textTheme.titleMedium,
+      try {
+        await ref.read(apiClientProvider).createHealthCheckPlan(
+              patientId: patientId,
+              label: draft.label,
+              itemType: draft.itemType,
+              timing: draft.timing,
+              active: draft.active,
+              notes: draft.notes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Daily health check added.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Unable to add daily health check: $error')),
+        );
+      }
+    }
+
+    Future<void> editHealthCheckPlan(HealthCheckPlanModel plan) async {
+      final draft = await showDialog<_HealthCheckPlanDraft>(
+        context: context,
+        builder: (_) => _HealthCheckPlanDialog(initialValue: plan),
+      );
+      if (draft == null) {
+        return;
+      }
+
+      try {
+        await ref.read(apiClientProvider).updateHealthCheckPlan(
+              patientId: patientId,
+              healthCheckPlanId: plan.id,
+              label: draft.label,
+              itemType: draft.itemType,
+              timing: draft.timing,
+              active: draft.active,
+              notes: draft.notes,
+            );
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Daily health check updated.')),
+        );
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Unable to update daily health check: $error'),
+          ),
+        );
+      }
+    }
+
+    return plansAsync.when(
+      data: (plans) {
+        return checksAsync.when(
+          data: (checks) {
+            return ListView(
+              padding: const EdgeInsets.all(16),
+              children: <Widget>[
+                if (canManagePlans)
+                  _TabActionHeader(
+                    label: 'Daily Checklist Health Checks',
+                    actionLabel: 'Add Daily Check',
+                    onPressed: createHealthCheckPlan,
+                  ),
+                if (plans.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(
+                        'No daily health checks configured for the checklist.',
+                      ),
+                    ),
+                  )
+                else
+                  ...plans.map((plan) {
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Card(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: <Widget>[
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: Text(
+                                      plan.label,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium,
+                                    ),
+                                  ),
+                                  if (canManagePlans)
+                                    IconButton(
+                                      tooltip: 'Edit daily health check',
+                                      onPressed: () =>
+                                          editHealthCheckPlan(plan),
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                ],
                               ),
-                            ),
-                            if (check.recordedByUid != null)
-                              Chip(
-                                label: Text(
-                                  'by ${check.recordedByUid}',
-                                  style: Theme.of(context).textTheme.bodySmall,
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: <Widget>[
+                                  Chip(
+                                    label: Text(
+                                      _healthCheckPlanItemLabel(plan.itemType),
+                                    ),
+                                  ),
+                                  Chip(
+                                    label: Text(
+                                      _healthCheckPlanTimingLabel(plan.timing),
+                                    ),
+                                  ),
+                                  Chip(
+                                    label: Text(
+                                      plan.active ? 'Active' : 'Inactive',
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              if (plan.notes != null &&
+                                  plan.notes!.trim().isNotEmpty) ...<Widget>[
+                                const SizedBox(height: 8),
+                                Text(
+                                  plan.notes!,
+                                  style: Theme.of(context).textTheme.bodyMedium,
                                 ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: <Widget>[
-                            _MetricChip(
-                              label: 'Weight',
-                              value: check.weightKg == null
-                                  ? '-'
-                                  : '${check.weightKg} kg',
-                            ),
-                            _MetricChip(
-                              label: 'Temp',
-                              value: check.temperatureC == null
-                                  ? '-'
-                                  : '${check.temperatureC} C',
-                            ),
-                            _MetricChip(label: 'BP', value: bp),
-                            _MetricChip(
-                              label: 'Pulse',
-                              value: check.pulseBpm == null
-                                  ? '-'
-                                  : '${check.pulseBpm} bpm',
-                            ),
-                            _MetricChip(
-                              label: 'SpO2',
-                              value: check.spo2Pct == null
-                                  ? '-'
-                                  : '${check.spo2Pct}%',
-                            ),
-                          ],
-                        ),
-                        if (check.notes != null &&
-                            check.notes!.isNotEmpty) ...<Widget>[
-                          const SizedBox(height: 8),
-                          Text(
-                            check.notes!,
-                            style: Theme.of(context).textTheme.bodyMedium,
+                              ],
+                            ],
                           ),
-                        ],
-                      ],
+                        ),
+                      ),
+                    );
+                  }),
+                if (canRecord) ...<Widget>[
+                  const SizedBox(height: 4),
+                  _TabActionHeader(
+                    label: 'Regular Health Checks',
+                    actionLabel: 'Add Health Check',
+                    onPressed: createHealthCheck,
+                  ),
+                ],
+                if (checks.isEmpty)
+                  const Card(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No health checks recorded yet.'),
                     ),
                   ),
-                ),
-              );
-            }),
-          ],
+                ...checks.map((check) {
+                  final bp = check.bloodPressureSystolic != null &&
+                          check.bloodPressureDiastolic != null
+                      ? '${check.bloodPressureSystolic}/${check.bloodPressureDiastolic}'
+                      : '-';
+                  final checkedAt = _formatIsoDateTime(check.checkedAt);
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Row(
+                              children: <Widget>[
+                                Expanded(
+                                  child: Text(
+                                    checkedAt,
+                                    style:
+                                        Theme.of(context).textTheme.titleMedium,
+                                  ),
+                                ),
+                                if (check.recordedByUid != null)
+                                  Chip(
+                                    label: Text(
+                                      'by ${check.recordedByUid}',
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: <Widget>[
+                                _MetricChip(
+                                  label: 'Weight',
+                                  value: check.weightKg == null
+                                      ? '-'
+                                      : '${check.weightKg} kg',
+                                ),
+                                _MetricChip(
+                                  label: 'Temp',
+                                  value: check.temperatureC == null
+                                      ? '-'
+                                      : '${check.temperatureC} C',
+                                ),
+                                _MetricChip(label: 'BP', value: bp),
+                                _MetricChip(
+                                  label: 'Pulse',
+                                  value: check.pulseBpm == null
+                                      ? '-'
+                                      : '${check.pulseBpm} bpm',
+                                ),
+                                _MetricChip(
+                                  label: 'SpO2',
+                                  value: check.spo2Pct == null
+                                      ? '-'
+                                      : '${check.spo2Pct}%',
+                                ),
+                              ],
+                            ),
+                            if (check.notes != null &&
+                                check.notes!.isNotEmpty) ...<Widget>[
+                              const SizedBox(height: 8),
+                              Text(
+                                check.notes!,
+                                style: Theme.of(context).textTheme.bodyMedium,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            );
+          },
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) =>
+              Center(child: Text('Unable to load health checks: $error')),
         );
       },
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) =>
-          Center(child: Text('Unable to load health checks: $error')),
+      error: (error, _) => Center(
+        child: Text('Unable to load daily health checks: $error'),
+      ),
     );
   }
 }
@@ -3463,6 +4152,187 @@ class _HealthCheckDialog extends StatefulWidget {
 
   @override
   State<_HealthCheckDialog> createState() => _HealthCheckDialogState();
+}
+
+class _HealthCheckPlanDialog extends StatefulWidget {
+  const _HealthCheckPlanDialog({
+    this.initialValue,
+  });
+
+  final HealthCheckPlanModel? initialValue;
+
+  @override
+  State<_HealthCheckPlanDialog> createState() => _HealthCheckPlanDialogState();
+}
+
+class _HealthCheckPlanDialogState extends State<_HealthCheckPlanDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _labelController;
+  late final TextEditingController _notesController;
+  late String _itemType;
+  late String _timing;
+  late bool _active;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialValue;
+    _itemType = initial?.itemType ?? _healthCheckPlanItemTypes.first;
+    _timing = initial?.timing ?? _healthCheckPlanTimingOptions.first;
+    _active = initial?.active ?? true;
+    _labelController = TextEditingController(
+      text: initial != null &&
+              initial.label.trim() != _defaultHealthCheckPlanLabel(_itemType)
+          ? initial.label
+          : '',
+    );
+    _notesController = TextEditingController(text: initial?.notes ?? '');
+  }
+
+  @override
+  void dispose() {
+    _labelController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.initialValue != null;
+
+    return AlertDialog(
+      title: Text(
+        isEditing ? 'Edit Daily Health Check' : 'Add Daily Health Check',
+      ),
+      content: SizedBox(
+        width: 460,
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                DropdownButtonFormField<String>(
+                  initialValue: _itemType,
+                  decoration:
+                      const InputDecoration(labelText: 'Checklist item'),
+                  items: _healthCheckPlanItemTypes
+                      .map(
+                        (itemType) => DropdownMenuItem<String>(
+                          value: itemType,
+                          child: Text(_healthCheckPlanItemLabel(itemType)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _itemType = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _timing,
+                  decoration:
+                      const InputDecoration(labelText: 'Checklist timing'),
+                  items: _healthCheckPlanTimingOptions
+                      .map(
+                        (timing) => DropdownMenuItem<String>(
+                          value: timing,
+                          child: Text(_healthCheckPlanTimingLabel(timing)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) {
+                      return;
+                    }
+                    setState(() {
+                      _timing = value;
+                    });
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _labelController,
+                  decoration: const InputDecoration(
+                    labelText: 'Custom label (optional)',
+                    hintText: 'Defaults to the selected checklist item',
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Checklist label: ${_resolveLabel()}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _notesController,
+                  minLines: 2,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    labelText: 'Notes (optional)',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Active'),
+                  value: _active,
+                  onChanged: (value) {
+                    setState(() {
+                      _active = value;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: Text(isEditing ? 'Save' : 'Create'),
+        ),
+      ],
+    );
+  }
+
+  String _resolveLabel() {
+    final customLabel = _labelController.text.trim();
+    if (customLabel.isNotEmpty) {
+      return customLabel;
+    }
+    return _defaultHealthCheckPlanLabel(_itemType);
+  }
+
+  void _submit() {
+    final form = _formKey.currentState;
+    if (form == null || !form.validate()) {
+      return;
+    }
+
+    final notes = _notesController.text.trim();
+    Navigator.of(context).pop(
+      _HealthCheckPlanDraft(
+        label: _resolveLabel(),
+        itemType: _itemType,
+        timing: _timing,
+        active: _active,
+        notes: notes.isEmpty ? null : notes,
+      ),
+    );
+  }
 }
 
 class _HealthCheckDialogState extends State<_HealthCheckDialog> {

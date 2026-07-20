@@ -113,6 +113,29 @@ export interface HealthCheck {
   updatedAt: IsoDateTimeString;
 }
 
+export type HealthCheckPlanItemType =
+  | 'blood_pressure'
+  | 'blood_glucose'
+  | 'wounds'
+  | 'other';
+
+export type HealthCheckPlanTiming =
+  | 'before_food'
+  | 'after_food'
+  | 'anytime';
+
+export interface HealthCheckPlan {
+  id: EntityId;
+  patientId: EntityId;
+  label: string;
+  itemType: HealthCheckPlanItemType;
+  timing: HealthCheckPlanTiming;
+  active: boolean;
+  notes?: string;
+  createdAt: IsoDateTimeString;
+  updatedAt: IsoDateTimeString;
+}
+
 export interface LabTest {
   id: EntityId;
   patientId: EntityId;
@@ -166,7 +189,19 @@ export interface BasalInsulinTask extends TaskBase {
   plannedUnits?: number;
 }
 
-export type Task = MedicineTask | ProcedureTask | RapidInsulinTask | BasalInsulinTask;
+export interface HealthCheckTask extends TaskBase {
+  type: 'health_check';
+  healthCheckPlanId: EntityId;
+  itemType?: HealthCheckPlanItemType;
+  timing?: HealthCheckPlanTiming;
+}
+
+export type Task =
+  | MedicineTask
+  | ProcedureTask
+  | RapidInsulinTask
+  | BasalInsulinTask
+  | HealthCheckTask;
 
 export type TaskStatus =
   | 'pending'
@@ -208,11 +243,16 @@ export interface BasalInsulinTaskResult extends TaskResultBase {
   deliveredUnits?: number;
 }
 
+export interface HealthCheckTaskResult extends TaskResultBase {
+  type: 'health_check';
+}
+
 export type TaskResult =
   | MedicineTaskResult
   | ProcedureTaskResult
   | RapidInsulinTaskResult
-  | BasalInsulinTaskResult;
+  | BasalInsulinTaskResult
+  | HealthCheckTaskResult;
 
 export type IssueSeverity = 'low' | 'medium' | 'high' | 'warning' | 'critical';
 export type IssueStatus = 'open' | 'in_review' | 'resolved' | 'dismissed';

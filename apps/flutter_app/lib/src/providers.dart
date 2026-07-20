@@ -2,9 +2,21 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'models.dart';
 import 'services/api_client.dart';
+
+/// Drives the app locale. Toggle between Locale('en') and Locale('ar').
+final localeProvider =
+    NotifierProvider<LocaleNotifier, Locale>(LocaleNotifier.new);
+
+class LocaleNotifier extends Notifier<Locale> {
+  @override
+  Locale build() => const Locale('en');
+
+  void setLocale(Locale locale) => state = locale;
+}
 
 const _firebaseStreamTimeout = Duration(seconds: 15);
 
@@ -321,6 +333,25 @@ final healthChecksProvider =
           .toList();
     }),
     'health checks',
+  );
+});
+
+final healthCheckPlansProvider =
+    StreamProvider.family<List<HealthCheckPlanModel>, String>((ref, patientId) {
+  return _withStreamTimeout(
+    ref
+        .watch(firestoreProvider)
+        .collection('patients')
+        .doc(patientId)
+        .collection('healthCheckPlans')
+        .snapshots()
+        .map((snapshot) {
+      return snapshot.docs
+          .map((doc) => HealthCheckPlanModel.fromMap(doc.id, doc.data()))
+          .toList()
+        ..sort((a, b) => a.label.compareTo(b.label));
+    }),
+    'health check plans',
   );
 });
 

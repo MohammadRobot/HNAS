@@ -268,6 +268,16 @@ function createMissedResult(
     };
   }
 
+  if (task.type === 'health_check') {
+    return {
+      type: 'health_check',
+      taskId: task.id,
+      status: 'missed',
+      completedAt,
+      note,
+    };
+  }
+
   if (task.type === 'insulin_rapid') {
     return {
       type: 'insulin_rapid',

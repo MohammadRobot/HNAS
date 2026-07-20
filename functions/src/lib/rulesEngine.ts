@@ -88,6 +88,10 @@ export function validateRequiredInputs(task: Task): RequiredInputValidation {
     missing.push('procedureId');
   }
 
+  if (task.type === 'health_check' && !isNonEmptyString(task.healthCheckPlanId)) {
+    missing.push('healthCheckPlanId');
+  }
+
   if (task.type === 'insulin_rapid' || task.type === 'insulin_basal') {
     if (!isNonEmptyString(task.insulinProfileId)) {
       missing.push('insulinProfileId');
@@ -204,6 +208,10 @@ function buildDuplicateKey(task: Task): string {
 
   if (task.type === 'procedure') {
     return ['procedure', task.procedureId, task.scheduledTime ?? ''].join('|');
+  }
+
+  if (task.type === 'health_check') {
+    return ['health_check', task.healthCheckPlanId, task.scheduledTime ?? ''].join('|');
   }
 
   if (task.type === 'insulin_rapid') {

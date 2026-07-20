@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../app_localizations.dart';
 import '../models.dart';
 import '../providers.dart';
 
@@ -29,7 +30,6 @@ class DashboardScreen extends ConsumerWidget {
     final profileAsync = ref.watch(userProfileProvider);
     final patientsAsync = ref.watch(patientsStreamProvider);
     final countsAsync = ref.watch(dashboardCountsProvider);
-    final uid = ref.watch(currentUserIdProvider);
 
     final profile = profileAsync.value;
     final role = profile?.role ?? 'unknown';
@@ -92,38 +92,40 @@ class DashboardScreen extends ConsumerWidget {
         if (!context.mounted) {
           return;
         }
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Patient created successfully.')),
+          SnackBar(content: Text(l.patientCreated)),
         );
         context.push('/patient/$patientId');
       } catch (error) {
         if (!context.mounted) {
           return;
         }
+        final l = AppLocalizations.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to create patient: $error')),
+          SnackBar(content: Text('${l.unableToCreatePatient}: $error')),
         );
       }
     }
 
     Widget buildCountsContent() {
+      final l = AppLocalizations.of(context);
       if (profileAsync.isLoading) {
         return const _LoadingBlock(height: 70);
       }
 
       if (profileAsync.hasError) {
         return _NoticeCard(
-          message: 'Unable to load user profile: ${profileAsync.error}',
-          actionLabel: 'Retry',
+          message: '${l.unableToLoadProfile}: ${profileAsync.error}',
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         );
       }
 
       if (profile == null) {
         return _NoticeCard(
-          message:
-              'No user profile found at /users/$uid. Seed demo data or create this document.',
-          actionLabel: 'Retry',
+          message: l.noUserProfile,
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         );
       }
@@ -132,18 +134,19 @@ class DashboardScreen extends ConsumerWidget {
         data: (counts) => _DashboardCountsRow(counts: counts),
         loading: () => const _LoadingBlock(height: 70),
         error: (error, _) => _NoticeCard(
-          message: 'Unable to load counts: $error',
-          actionLabel: 'Retry',
+          message: '${l.unableToLoadCounts}: $error',
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         ),
       );
     }
 
     Widget buildPatientsContent() {
+      final l = AppLocalizations.of(context);
       if (profileAsync.isLoading) {
-        return const Card(
+        return Card(
           child: Padding(
-            padding: EdgeInsets.all(16),
+            padding: const EdgeInsets.all(16),
             child: _LoadingBlock(height: 90),
           ),
         );
@@ -151,17 +154,16 @@ class DashboardScreen extends ConsumerWidget {
 
       if (profileAsync.hasError) {
         return _NoticeCard(
-          message: 'Unable to load user profile: ${profileAsync.error}',
-          actionLabel: 'Retry',
+          message: '${l.unableToLoadProfile}: ${profileAsync.error}',
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         );
       }
 
       if (profile == null) {
         return _NoticeCard(
-          message:
-              'No user profile found at /users/$uid. Without this profile the patient list cannot be loaded.',
-          actionLabel: 'Retry',
+          message: l.noUserProfile,
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         );
       }
@@ -172,12 +174,13 @@ class DashboardScreen extends ConsumerWidget {
             return Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Text('No patients available for role "$role".'),
+                child: Text(l.noPatients),
               ),
             );
           }
 
           return Card(
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: patients
                   .map((patient) => _PatientTile(patient: patient))
@@ -192,53 +195,59 @@ class DashboardScreen extends ConsumerWidget {
           ),
         ),
         error: (error, _) => _NoticeCard(
-          message: 'Unable to load patients: $error',
-          actionLabel: 'Retry',
+          message: '${l.unableToLoadPatients}: $error',
+          actionLabel: l.retry,
           onAction: refreshDashboardData,
         ),
       );
     }
 
+    final l = AppLocalizations.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('HNAS Dashboard'),
+        title: Text(l.dashboard),
         actions: <Widget>[
           if (profile?.displayName != null)
             Padding(
-              padding: const EdgeInsets.only(right: 8),
+              padding: const EdgeInsets.only(right: 4),
               child: Center(
                 child: Chip(
                   avatar: const Icon(Icons.verified_user_outlined, size: 16),
-                  label: Text('${profile!.displayName} • $role'),
+                  label: Text(
+                    '${profile!.displayName} • ${l.roleLabel(role)}',
+                  ),
                 ),
               ),
             ),
           if (canManagePatients)
             IconButton(
-              tooltip: 'Add patient',
+              tooltip: l.addPatient,
               onPressed: openCreatePatientDialog,
               icon: const Icon(Icons.person_add_alt_1_rounded),
             ),
           if (canManageUsers)
             IconButton(
-              tooltip: 'Manage users',
+              tooltip: l.manageUsers,
               onPressed: () => context.push('/users'),
               icon: const Icon(Icons.manage_accounts_outlined),
             ),
           IconButton(
-            tooltip: 'Refresh',
+            tooltip: l.refresh,
             onPressed: refreshDashboardData,
             icon: const Icon(Icons.refresh_rounded),
           ),
+          // Language toggle
+          _LocaleToggleButton(),
           IconButton(
-            tooltip: 'Sign out',
+            tooltip: l.signOut,
             onPressed: () => FirebaseAuth.instance.signOut(),
             icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
         children: <Widget>[
           _DashboardHero(
             role: role,
@@ -247,28 +256,41 @@ class DashboardScreen extends ConsumerWidget {
             canManageUsers: canManageUsers,
             onManageUsers: () => context.push('/users'),
           ),
-          const SizedBox(height: 12),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: buildCountsContent(),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(
+                color: Theme.of(context)
+                    .colorScheme
+                    .outlineVariant
+                    .withValues(alpha: 0.5),
+              ),
             ),
+            child: buildCountsContent(),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           Row(
             children: <Widget>[
               Text(
-                'Patient Directory',
-                style: Theme.of(context).textTheme.titleLarge,
+                l.patientDirectory,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
               const Spacer(),
               Text(
-                'Tap a patient to open details',
-                style: Theme.of(context).textTheme.bodySmall,
+                l.tapToOpenDetails,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           buildPatientsContent(),
         ],
       ),
@@ -293,66 +315,103 @@ class _DashboardHero extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final colorScheme = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 22),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: <Color>[
             colorScheme.primary,
+            const Color(0xFF0D47A1),
             colorScheme.secondary,
           ],
+          stops: const [0.0, 0.5, 1.0],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: colorScheme.primary.withValues(alpha: 0.35),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            'Care Operations',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                  color: colorScheme.onPrimary,
-                  fontWeight: FontWeight.w700,
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Role: $role',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onPrimary.withValues(alpha: 0.9),
+                child: const Icon(
+                  Icons.local_hospital_rounded,
+                  size: 22,
+                  color: Colors.white,
                 ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: <Widget>[
-              if (canManagePatients)
-                FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: colorScheme.onPrimary,
-                    foregroundColor: colorScheme.primary,
-                  ),
-                  onPressed: onAddPatient,
-                  icon: const Icon(Icons.person_add_alt_1_rounded),
-                  label: const Text('New Patient Intake'),
-                ),
-              if (canManageUsers)
-                OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colorScheme.onPrimary,
-                    side: BorderSide(
-                      color: colorScheme.onPrimary.withValues(alpha: 0.65),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      l.careOperations,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: -0.3,
+                          ),
                     ),
-                  ),
-                  onPressed: onManageUsers,
-                  icon: const Icon(Icons.manage_accounts_outlined),
-                  label: const Text('Manage Users'),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${l.role}: ${l.roleLabel(role)}',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
+                    ),
+                  ],
                 ),
+              ),
             ],
           ),
+          if (canManagePatients || canManageUsers) ...[
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: <Widget>[
+                if (canManagePatients)
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: colorScheme.primary,
+                    ),
+                    onPressed: onAddPatient,
+                    icon: const Icon(Icons.person_add_alt_1_rounded),
+                    label: Text(l.newPatientIntake),
+                  ),
+                if (canManageUsers)
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(
+                        color: Colors.white.withValues(alpha: 0.6),
+                      ),
+                    ),
+                    onPressed: onManageUsers,
+                    icon: const Icon(Icons.manage_accounts_outlined),
+                    label: Text(l.manageUsers),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -366,34 +425,40 @@ class _DashboardCountsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
+      spacing: 10,
+      runSpacing: 10,
       children: <Widget>[
         _CountTile(
-          label: 'Patients',
+          label: l.patients,
           value: counts.totalPatients.toString(),
           icon: Icons.people_alt_outlined,
+          accentColor: Theme.of(context).colorScheme.primary,
         ),
         _CountTile(
-          label: 'Done',
+          label: l.done,
           value: counts.done.toString(),
           icon: Icons.check_circle_outline,
+          accentColor: const Color(0xFF2E7D32),
         ),
         _CountTile(
-          label: 'Missed',
+          label: l.missed,
           value: counts.missed.toString(),
           icon: Icons.error_outline,
+          accentColor: const Color(0xFFC62828),
         ),
         _CountTile(
-          label: 'Late',
+          label: l.late,
           value: counts.late.toString(),
           icon: Icons.schedule_outlined,
+          accentColor: const Color(0xFFE65100),
         ),
         _CountTile(
-          label: 'Skipped',
+          label: l.skipped,
           value: counts.skipped.toString(),
           icon: Icons.skip_next_outlined,
+          accentColor: const Color(0xFF546E7A),
         ),
       ],
     );
@@ -405,42 +470,63 @@ class _CountTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
+    required this.accentColor,
   });
 
   final String label;
   final String value;
   final IconData icon;
+  final Color accentColor;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
-      width: 142,
+      width: 138,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color:
-            theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.72),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: accentColor.withValues(alpha: 0.2),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: accentColor.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Icon(
-            icon,
-            size: 18,
-            color: theme.colorScheme.primary,
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: accentColor.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(
+              icon,
+              size: 16,
+              color: accentColor,
+            ),
           ),
           const SizedBox(height: 10),
           Text(
             value,
             style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
+              color: accentColor,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
           Text(
             label,
-            style: theme.textTheme.bodySmall,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),
@@ -455,15 +541,16 @@ class _PatientTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
     final subtitleParts = <String>[];
     if (patient.diagnosis.isNotEmpty) {
       subtitleParts.add(patient.diagnosis.join(', '));
     }
     if (patient.riskFlags.isNotEmpty) {
-      subtitleParts.add('Risk: ${patient.riskFlags.join(', ')}');
+      subtitleParts.add('${l.riskFlags}: ${patient.riskFlags.join(', ')}');
     }
     if (subtitleParts.isEmpty) {
-      subtitleParts.add('No diagnosis/risk flags recorded');
+      subtitleParts.add(l.noData);
     }
 
     final dateOfBirth = patient.dateOfBirth;
@@ -542,9 +629,30 @@ class _NoticeCard extends StatelessWidget {
                 label: Text(actionLabel!),
               ),
             ],
+
           ],
         ),
       ),
+    );
+  }
+}
+
+// ── Locale toggle in AppBar ───────────────────────────────────────────────────
+
+class _LocaleToggleButton extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locale = ref.watch(localeProvider);
+    final l = AppLocalizations.of(context);
+    final isArabic = locale.languageCode == 'ar';
+    return IconButton(
+      tooltip: l.language,
+      icon: const Icon(Icons.language_rounded),
+      onPressed: () {
+        ref.read(localeProvider.notifier).setLocale(
+              isArabic ? const Locale('en') : const Locale('ar'),
+            );
+      },
     );
   }
 }
@@ -698,8 +806,9 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
         ? 'Now'
         : _formatDateTime(_initialHealthCheckAt!);
 
+    final l = AppLocalizations.of(context);
     return AlertDialog(
-      title: const Text('New Patient Intake'),
+      title: Text(l.newPatientIntake),
       content: SizedBox(
         width: 560,
         child: Form(
@@ -710,20 +819,20 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'Basic Details',
+                  l.basicDetails,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Full Name',
-                    prefixIcon: Icon(Icons.person_outline),
+                  decoration: InputDecoration(
+                    labelText: l.fullName,
+                    prefixIcon: const Icon(Icons.person_outline),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
-                      return 'Full name is required.';
+                      return l.fullNameRequired;
                     }
                     return null;
                   },
@@ -801,7 +910,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Contact',
+                  l.contact,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
@@ -846,7 +955,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  'Clinical Context',
+                  l.clinicalContext,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
@@ -1088,11 +1197,11 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: Text(l.cancel),
         ),
         FilledButton(
           onPressed: _submit,
-          child: const Text('Create Patient'),
+          child: Text(l.createPatient),
         ),
       ],
     );

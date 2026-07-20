@@ -25,6 +25,7 @@ const PATIENTS_COLLECTION = 'patients';
 const MEDICINES_SUBCOLLECTION = 'medicines';
 const PROCEDURES_SUBCOLLECTION = 'procedures';
 const INSULIN_PROFILES_SUBCOLLECTION = 'insulinProfiles';
+const HEALTH_CHECK_PLANS_SUBCOLLECTION = 'healthCheckPlans';
 const DAILY_CHECKLISTS_SUBCOLLECTION = 'dailyChecklists';
 
 export const generateDailyChecklists = onSchedule(
@@ -55,7 +56,12 @@ export const generateDailyChecklists = onSchedule(
         const dateId = getDateIdForTimeZone(now, patientTimeZone);
 
         try {
-          const [medicinesSnapshot, proceduresSnapshot, insulinSnapshot] = await Promise.all([
+          const [
+            medicinesSnapshot,
+            proceduresSnapshot,
+            insulinSnapshot,
+            healthCheckPlansSnapshot,
+          ] = await Promise.all([
             patientSubcollectionRef(patientId, MEDICINES_SUBCOLLECTION)
                 .where('active', '==', true)
                 .get(),
@@ -63,6 +69,9 @@ export const generateDailyChecklists = onSchedule(
                 .where('active', '==', true)
                 .get(),
             patientSubcollectionRef(patientId, INSULIN_PROFILES_SUBCOLLECTION)
+                .where('active', '==', true)
+                .get(),
+            patientSubcollectionRef(patientId, HEALTH_CHECK_PLANS_SUBCOLLECTION)
                 .where('active', '==', true)
                 .get(),
           ]);
@@ -73,6 +82,8 @@ export const generateDailyChecklists = onSchedule(
               patientData,
               insulinSnapshot.docs.map(toSourceRecord),
           );
+          const healthCheckPlans =
+              healthCheckPlansSnapshot.docs.map(toSourceRecord);
 
           const tasks = generateChecklistTasks({
             patientId,
@@ -80,6 +91,7 @@ export const generateDailyChecklists = onSchedule(
             medicines,
             procedures,
             insulinProfiles,
+            healthCheckPlans,
           });
 
           await upsertDailyChecklist({
@@ -238,7 +250,8 @@ function isAllowedTaskResultType(value: unknown): boolean {
   return value === 'medicine' ||
     value === 'procedure' ||
     value === 'insulin_rapid' ||
-    value === 'insulin_basal';
+    value === 'insulin_basal' ||
+    value === 'health_check';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

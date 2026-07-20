@@ -311,6 +311,8 @@ class ChecklistTaskModel {
     this.medicineId,
     this.procedureId,
     this.insulinProfileId,
+    this.healthCheckPlanId,
+    this.healthCheckTiming,
   });
 
   final String id;
@@ -321,8 +323,11 @@ class ChecklistTaskModel {
   final String? medicineId;
   final String? procedureId;
   final String? insulinProfileId;
+  final String? healthCheckPlanId;
+  final String? healthCheckTiming;
 
   bool get isInsulinRapid => type == 'insulin_rapid';
+  bool get isHealthCheck => type == 'health_check';
 
   factory ChecklistTaskModel.fromMap(Map<String, dynamic> map) {
     return ChecklistTaskModel(
@@ -334,6 +339,8 @@ class ChecklistTaskModel {
       medicineId: _readString(map['medicineId']),
       procedureId: _readString(map['procedureId']),
       insulinProfileId: _readString(map['insulinProfileId']),
+      healthCheckPlanId: _readString(map['healthCheckPlanId']),
+      healthCheckTiming: _readString(map['timing']),
     );
   }
 }
@@ -502,6 +509,37 @@ class HealthCheckModel {
       spo2Pct: _readNum(map['spo2Pct']),
       notes: _readString(map['notes']),
       recordedByUid: _readString(map['recordedByUid']),
+    );
+  }
+}
+
+class HealthCheckPlanModel {
+  const HealthCheckPlanModel({
+    required this.id,
+    required this.label,
+    required this.itemType,
+    required this.timing,
+    this.active = true,
+    this.notes,
+  });
+
+  final String id;
+  final String label;
+  final String itemType;
+  final String timing;
+  final bool active;
+  final String? notes;
+
+  factory HealthCheckPlanModel.fromMap(String id, Map<String, dynamic> map) {
+    return HealthCheckPlanModel(
+      id: id,
+      label: _readString(map['label']) ??
+          _readString(map['name']) ??
+          'Health Check',
+      itemType: _readString(map['itemType']) ?? 'other',
+      timing: _readString(map['timing']) ?? 'anytime',
+      active: _readBool(map['active']) ?? true,
+      notes: _readString(map['notes']),
     );
   }
 }

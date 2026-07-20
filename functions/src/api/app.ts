@@ -745,6 +745,91 @@ app.post('/api/patients/healthChecks/create', asyncRoute(async (req, res) => {
   });
 }));
 
+app.post('/api/healthCheckPlans/create', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  await assertPatientAccess(context.user, patientId);
+
+  const payload = parseHealthCheckPlanPayload(body);
+  const patientRef = firestore.collection('patients').doc(patientId);
+  await assertDocumentExists(patientRef, `Patient "${patientId}" not found.`);
+
+  const nowIso = new Date().toISOString();
+  const planRef = patientRef.collection('healthCheckPlans').doc();
+  await planRef.set({
+    id: planRef.id,
+    patientId,
+    label: payload.label,
+    itemType: payload.itemType,
+    timing: payload.timing,
+    active: payload.active,
+    ...(payload.notes ? {notes: payload.notes} : {}),
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  });
+
+  res.status(201).json({
+    ok: true,
+    patientId,
+    healthCheckPlanId: planRef.id,
+  });
+}));
+
+app.post('/api/healthCheckPlans/update', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor']);
+
+  const body = requireBodyObject(req.body);
+  const patientId = readRequiredString(body, 'patientId');
+  const healthCheckPlanId = readRequiredString(body, 'healthCheckPlanId');
+  await assertPatientAccess(context.user, patientId);
+
+  const planRef = firestore
+      .collection('patients')
+      .doc(patientId)
+      .collection('healthCheckPlans')
+      .doc(healthCheckPlanId);
+  await assertDocumentExists(
+      planRef,
+      `Health check plan "${healthCheckPlanId}" for patient "${patientId}" was not found.`,
+  );
+
+  const patch: UnknownRecord = {};
+  if (hasOwn(body, 'label')) {
+    patch.label = readRequiredString(body, 'label');
+  }
+  if (hasOwn(body, 'itemType')) {
+    patch.itemType = readAndValidateHealthCheckPlanItemType(body, 'itemType');
+  }
+  if (hasOwn(body, 'timing')) {
+    patch.timing = readAndValidateHealthCheckPlanTiming(body, 'timing');
+  }
+  if (hasOwn(body, 'active')) {
+    patch.active = readRequiredBoolean(body, 'active');
+  }
+  if (hasOwn(body, 'notes')) {
+    patch.notes = body.notes === null ?
+      FieldValue.delete() :
+      readRequiredString(body, 'notes');
+  }
+
+  if (Object.keys(patch).length === 0) {
+    throw new HttpError(400, 'invalid-argument', 'No updatable health check plan fields provided.');
+  }
+
+  patch.updatedAt = new Date().toISOString();
+  await planRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    patientId,
+    healthCheckPlanId,
+  });
+}));
+
 app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
   const context = await getAuthContext(req);
   assertRole(context.user, ['admin', 'supervisor', 'nurse']);
@@ -768,10 +853,11 @@ app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
       new Date(),
       normalizeTimeZone(patientData.timezone),
   );
-  const [medicinesSnap, proceduresSnap, insulinSnap] = await Promise.all([
+  const [medicinesSnap, proceduresSnap, insulinSnap, healthCheckPlansSnap] = await Promise.all([
     patientRef.collection('medicines').where('active', '==', true).get(),
     patientRef.collection('procedures').where('active', '==', true).get(),
     patientRef.collection('insulinProfiles').where('active', '==', true).get(),
+    patientRef.collection('healthCheckPlans').where('active', '==', true).get(),
   ]);
 
   const medicines = medicinesSnap.docs.map(toChecklistSourceRecord);
@@ -780,12 +866,15 @@ app.post('/api/checklist/generate', asyncRoute(async (req, res) => {
       patientData,
       insulinSnap.docs.map(toChecklistSourceRecord),
   );
+  const healthCheckPlans =
+      healthCheckPlansSnap.docs.map(toChecklistSourceRecord);
   const tasks = generateChecklistTasks({
     patientId,
     dateId: date,
     medicines,
     procedures,
     insulinProfiles,
+    healthCheckPlans,
   });
 
   const checklistRef = patientRef.collection('dailyChecklists').doc(date);
@@ -1223,7 +1312,9 @@ app.post('/api/insulinProfiles/update', asyncRoute(async (req, res) => {
     patch.label = readRequiredString(body, 'label');
   }
   if (hasOwn(body, 'insulinName')) {
-    patch.insulinName = readRequiredString(body, 'insulinName');
+    patch.insulinName = body.insulinName === null ?
+      FieldValue.delete() :
+      readRequiredString(body, 'insulinName');
   }
   if (hasOwn(body, 'active')) {
     patch.active = readRequiredBoolean(body, 'active');
@@ -1235,13 +1326,19 @@ app.post('/api/insulinProfiles/update', asyncRoute(async (req, res) => {
     patch.mealBaseUnits = readRequiredNumberMap(body, 'mealBaseUnits');
   }
   if (hasOwn(body, 'defaultBaseUnits')) {
-    patch.defaultBaseUnits = readRequiredNumber(body, 'defaultBaseUnits');
+    patch.defaultBaseUnits = body.defaultBaseUnits === null ?
+      FieldValue.delete() :
+      readRequiredNumber(body, 'defaultBaseUnits');
   }
   if (hasOwn(body, 'fixedUnits')) {
-    patch.fixedUnits = readRequiredNumber(body, 'fixedUnits');
+    patch.fixedUnits = body.fixedUnits === null ?
+      FieldValue.delete() :
+      readRequiredNumber(body, 'fixedUnits');
   }
   if (hasOwn(body, 'notes')) {
-    patch.notes = readRequiredString(body, 'notes');
+    patch.notes = body.notes === null ?
+      FieldValue.delete() :
+      readRequiredString(body, 'notes');
   }
   if (hasOwn(body, 'scheduleTimes')) {
     patch.scheduleTimes = readRequiredTimeArray(body, 'scheduleTimes');
@@ -3755,6 +3852,14 @@ interface HealthCheckPayload {
   notes?: string;
 }
 
+interface HealthCheckPlanPayload {
+  label: string;
+  itemType: 'blood_pressure' | 'blood_glucose' | 'wounds' | 'other';
+  timing: 'before_food' | 'after_food' | 'anytime';
+  active: boolean;
+  notes?: string;
+}
+
 function parseHealthCheckPayload(
     obj: UnknownRecord,
     rootFieldName: string,
@@ -3842,6 +3947,55 @@ function parseHealthCheckPayload(
     spo2Pct,
     notes,
   };
+}
+
+function parseHealthCheckPlanPayload(obj: UnknownRecord): HealthCheckPlanPayload {
+  return {
+    label: readRequiredString(obj, 'label'),
+    itemType: readAndValidateHealthCheckPlanItemType(obj, 'itemType'),
+    timing: readAndValidateHealthCheckPlanTiming(obj, 'timing'),
+    active: readOptionalBoolean(obj, 'active') ?? true,
+    notes: readOptionalString(obj, 'notes'),
+  };
+}
+
+function readAndValidateHealthCheckPlanItemType(
+    obj: UnknownRecord,
+    key: string,
+): 'blood_pressure' | 'blood_glucose' | 'wounds' | 'other' {
+  const value = readRequiredString(obj, key).toLowerCase();
+  switch (value) {
+    case 'blood_pressure':
+    case 'blood_glucose':
+    case 'wounds':
+    case 'other':
+      return value;
+    default:
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          `${key} must be one of: blood_pressure, blood_glucose, wounds, other.`,
+      );
+  }
+}
+
+function readAndValidateHealthCheckPlanTiming(
+    obj: UnknownRecord,
+    key: string,
+): 'before_food' | 'after_food' | 'anytime' {
+  const value = readRequiredString(obj, key).toLowerCase();
+  switch (value) {
+    case 'before_food':
+    case 'after_food':
+    case 'anytime':
+      return value;
+    default:
+      throw new HttpError(
+          400,
+          'invalid-argument',
+          `${key} must be one of: before_food, after_food, anytime.`,
+      );
+  }
 }
 
 function assertNumberRange(value: number, fieldName: string, min: number, max: number): void {

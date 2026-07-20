@@ -332,6 +332,54 @@ class ApiClient {
     return healthCheckId;
   }
 
+  Future<String> createHealthCheckPlan({
+    required String patientId,
+    required String label,
+    required String itemType,
+    required String timing,
+    bool active = true,
+    String? notes,
+  }) async {
+    final response =
+        await _post('/api/healthCheckPlans/create', <String, dynamic>{
+      'patientId': patientId.trim(),
+      'label': label.trim(),
+      'itemType': itemType.trim().toLowerCase(),
+      'timing': timing.trim().toLowerCase(),
+      'active': active,
+      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+    });
+
+    final healthCheckPlanId = response['healthCheckPlanId'];
+    if (healthCheckPlanId is! String || healthCheckPlanId.isEmpty) {
+      throw ApiException(
+        code: 'invalid-response',
+        message: 'API response is missing healthCheckPlanId.',
+      );
+    }
+    return healthCheckPlanId;
+  }
+
+  Future<void> updateHealthCheckPlan({
+    required String patientId,
+    required String healthCheckPlanId,
+    required String label,
+    required String itemType,
+    required String timing,
+    required bool active,
+    String? notes,
+  }) async {
+    await _post('/api/healthCheckPlans/update', <String, dynamic>{
+      'patientId': patientId.trim(),
+      'healthCheckPlanId': healthCheckPlanId.trim(),
+      'label': label.trim(),
+      'itemType': itemType.trim().toLowerCase(),
+      'timing': timing.trim().toLowerCase(),
+      'active': active,
+      'notes': notes?.trim(),
+    });
+  }
+
   Future<String> createLabTest({
     required String patientId,
     required String testName,
@@ -599,32 +647,30 @@ class ApiClient {
   Future<void> updateInsulinProfile({
     required String patientId,
     required String insulinProfileId,
-    String? type,
-    String? label,
+    required String type,
+    required String label,
     String? insulinName,
-    bool? active,
-    List<num>? slidingScaleMgdl,
-    Map<String, num>? mealBaseUnits,
+    required bool active,
+    required List<num> slidingScaleMgdl,
+    required Map<String, num> mealBaseUnits,
     num? defaultBaseUnits,
     num? fixedUnits,
     String? notes,
-    List<String>? scheduleTimes,
+    required List<String> scheduleTimes,
   }) async {
     final body = <String, dynamic>{
       'patientId': patientId.trim(),
       'insulinProfileId': insulinProfileId.trim(),
-      if (type != null) 'type': type.trim().toLowerCase(),
-      if (label != null) 'label': label.trim(),
-      if (insulinName != null) 'insulinName': insulinName.trim(),
-      if (active != null) 'active': active,
-      if (slidingScaleMgdl != null)
-        'slidingScaleMgdl': _cleanNumList(slidingScaleMgdl),
-      if (mealBaseUnits != null) 'mealBaseUnits': _cleanNumMap(mealBaseUnits),
-      if (defaultBaseUnits != null) 'defaultBaseUnits': defaultBaseUnits,
-      if (fixedUnits != null) 'fixedUnits': fixedUnits,
-      if (notes != null) 'notes': notes.trim(),
-      if (scheduleTimes != null)
-        'scheduleTimes': _cleanStringList(scheduleTimes),
+      'type': type.trim().toLowerCase(),
+      'label': label.trim(),
+      'insulinName': insulinName?.trim(),
+      'active': active,
+      'slidingScaleMgdl': _cleanNumList(slidingScaleMgdl),
+      'mealBaseUnits': _cleanNumMap(mealBaseUnits),
+      'defaultBaseUnits': defaultBaseUnits,
+      'fixedUnits': fixedUnits,
+      'notes': notes?.trim(),
+      'scheduleTimes': _cleanStringList(scheduleTimes),
     };
     await _post('/api/insulinProfiles/update', body);
   }

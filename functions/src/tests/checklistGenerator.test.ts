@@ -6,6 +6,7 @@ const baseInput = {
   patientId: 'patient-1',
   procedures: [],
   insulinProfiles: [],
+  healthCheckPlans: [],
 };
 
 test('medicine with daily recurrence is scheduled every day', () => {
@@ -78,4 +79,26 @@ test('monthly interval recurrence clamps to month end when needed', () => {
 
   assert.equal(onMonthEnd.length, 1);
   assert.equal(nonMatchingDay.length, 0);
+});
+
+test('active health check plans are added to the checklist with timing notes', () => {
+  const tasks = generateChecklistTasks({
+    ...baseInput,
+    dateId: '2026-04-10',
+    medicines: [],
+    healthCheckPlans: [
+      {
+        id: 'hc-1',
+        label: 'Blood Pressure',
+        itemType: 'blood_pressure',
+        timing: 'before_food',
+        active: true,
+      },
+    ],
+  });
+
+  assert.equal(tasks.length, 1);
+  assert.equal(tasks[0]?.type, 'health_check');
+  assert.equal(tasks[0]?.title, 'Health Check: Blood Pressure');
+  assert.equal(tasks[0]?.notes, 'Complete before food and record in Health Checks.');
 });
