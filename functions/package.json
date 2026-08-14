@@ -9,7 +9,7 @@
     "build": "tsc",
     "lint": "eslint --ext .ts src",
     "test": "npm run build && node --test \"lib/tests/**/*.test.js\"",
-    "serve": "set -a; [ -f ../.env ] && . ../.env; set +a; npm run build && JDK21=\"$HOME/.local/jdks/temurin-21.0.8\"; if [ -x \"$JDK21/bin/java\" ]; then export JAVA_HOME=\"$JDK21\"; export PATH=\"$JDK21/bin:$PATH\"; fi; npx --yes firebase-tools emulators:start --config ../firebase.json --project demo-hnas --only auth,firestore,functions",
+    "serve": "npm run build && bash ../scripts/firebase-emulators.sh",
     "deploy": "set -a; [ -f ../.env ] && . ../.env; set +a; npm run build && npx --yes firebase-tools deploy --config ../firebase.json --only functions",
     "seed:demo": "node scripts/seed-demo.js",
     "migrate:insulin-profiles": "node scripts/migrate-inline-insulin-profiles.js"

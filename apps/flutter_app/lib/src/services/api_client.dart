@@ -5,11 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models.dart';
 
 class ApiException implements Exception {
-  ApiException({
-    required this.code,
-    required this.message,
-    this.statusCode,
-  });
+  ApiException({required this.code, required this.message, this.statusCode});
 
   final String code;
   final String message;
@@ -29,9 +25,9 @@ class ApiClient {
     required FirebaseAuth auth,
     http.Client? httpClient,
     String? baseUrl,
-  })  : _auth = auth,
-        _httpClient = httpClient ?? http.Client(),
-        _baseUrl = _resolveBaseUrl(baseUrl);
+  }) : _auth = auth,
+       _httpClient = httpClient ?? http.Client(),
+       _baseUrl = _resolveBaseUrl(baseUrl);
 
   final FirebaseAuth _auth;
   final http.Client _httpClient;
@@ -81,9 +77,7 @@ class ApiClient {
     });
   }
 
-  Future<DashboardCounts> fetchDashboardCounts({
-    required String date,
-  }) async {
+  Future<DashboardCounts> fetchDashboardCounts({required String date}) async {
     final response = await _post('/api/dashboard/counts', <String, dynamic>{
       'date': date.trim(),
     });
@@ -108,6 +102,46 @@ class ApiClient {
     );
   }
 
+  Future<List<VisitModel>> fetchTodayVisits({required String date}) async {
+    final response = await _post('/api/visits/today', <String, dynamic>{
+      'date': date.trim(),
+    });
+    final visitsRaw = response['visits'];
+    if (visitsRaw is! List) {
+      return const <VisitModel>[];
+    }
+    return visitsRaw
+        .whereType<Map>()
+        .map((entry) => VisitModel.fromMap(entry.cast<String, dynamic>()))
+        .toList();
+  }
+
+  Future<VisitModel> fetchVisit({required String visitId}) async {
+    final response = await _post('/api/visits/get', <String, dynamic>{
+      'visitId': visitId.trim(),
+    });
+    return _readVisitResponse(response);
+  }
+
+  Future<VisitModel> startVisit({required String visitId}) async {
+    final response = await _post('/api/visits/start', <String, dynamic>{
+      'visitId': visitId.trim(),
+    });
+    return _readVisitResponse(response);
+  }
+
+  Future<VisitModel> completeVisit({
+    required String visitId,
+    String? summaryNote,
+  }) async {
+    final response = await _post('/api/visits/complete', <String, dynamic>{
+      'visitId': visitId.trim(),
+      if (summaryNote != null && summaryNote.trim().isNotEmpty)
+        'summaryNote': summaryNote.trim(),
+    });
+    return _readVisitResponse(response);
+  }
+
   Future<List<ManagedUserModel>> listUsers({
     String? agencyId,
     String? role,
@@ -126,11 +160,7 @@ class ApiClient {
 
     return usersRaw
         .whereType<Map>()
-        .map(
-          (entry) => ManagedUserModel.fromMap(
-            entry.cast<String, dynamic>(),
-          ),
-        )
+        .map((entry) => ManagedUserModel.fromMap(entry.cast<String, dynamic>()))
         .toList();
   }
 
@@ -342,13 +372,13 @@ class ApiClient {
   }) async {
     final response =
         await _post('/api/healthCheckPlans/create', <String, dynamic>{
-      'patientId': patientId.trim(),
-      'label': label.trim(),
-      'itemType': itemType.trim().toLowerCase(),
-      'timing': timing.trim().toLowerCase(),
-      'active': active,
-      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
-    });
+          'patientId': patientId.trim(),
+          'label': label.trim(),
+          'itemType': itemType.trim().toLowerCase(),
+          'timing': timing.trim().toLowerCase(),
+          'active': active,
+          if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+        });
 
     final healthCheckPlanId = response['healthCheckPlanId'];
     if (healthCheckPlanId is! String || healthCheckPlanId.isEmpty) {
@@ -617,22 +647,22 @@ class ApiClient {
   }) async {
     final response =
         await _post('/api/insulinProfiles/create', <String, dynamic>{
-      'patientId': patientId.trim(),
-      'type': type.trim().toLowerCase(),
-      'label': label.trim(),
-      if (insulinName != null && insulinName.trim().isNotEmpty)
-        'insulinName': insulinName.trim(),
-      'active': active,
-      if (_cleanNumList(slidingScaleMgdl).isNotEmpty)
-        'slidingScaleMgdl': _cleanNumList(slidingScaleMgdl),
-      if (_cleanNumMap(mealBaseUnits).isNotEmpty)
-        'mealBaseUnits': _cleanNumMap(mealBaseUnits),
-      if (defaultBaseUnits != null) 'defaultBaseUnits': defaultBaseUnits,
-      if (fixedUnits != null) 'fixedUnits': fixedUnits,
-      if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
-      if (_cleanStringList(scheduleTimes).isNotEmpty)
-        'scheduleTimes': _cleanStringList(scheduleTimes),
-    });
+          'patientId': patientId.trim(),
+          'type': type.trim().toLowerCase(),
+          'label': label.trim(),
+          if (insulinName != null && insulinName.trim().isNotEmpty)
+            'insulinName': insulinName.trim(),
+          'active': active,
+          if (_cleanNumList(slidingScaleMgdl).isNotEmpty)
+            'slidingScaleMgdl': _cleanNumList(slidingScaleMgdl),
+          if (_cleanNumMap(mealBaseUnits).isNotEmpty)
+            'mealBaseUnits': _cleanNumMap(mealBaseUnits),
+          if (defaultBaseUnits != null) 'defaultBaseUnits': defaultBaseUnits,
+          if (fixedUnits != null) 'fixedUnits': fixedUnits,
+          if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
+          if (_cleanStringList(scheduleTimes).isNotEmpty)
+            'scheduleTimes': _cleanStringList(scheduleTimes),
+        });
 
     final insulinProfileId = response['insulinProfileId'];
     if (insulinProfileId is! String || insulinProfileId.isEmpty) {
@@ -773,7 +803,8 @@ class ApiClient {
       if (errorNode is Map<String, dynamic>) {
         throw ApiException(
           code: (errorNode['code'] as String?) ?? 'api-error',
-          message: (errorNode['message'] as String?) ??
+          message:
+              (errorNode['message'] as String?) ??
               'Request failed with status ${response.statusCode}.',
           statusCode: response.statusCode,
         );
@@ -802,6 +833,17 @@ class ApiClient {
     }
 
     return payload;
+  }
+
+  VisitModel _readVisitResponse(Map<String, dynamic> response) {
+    final visitRaw = response['visit'];
+    if (visitRaw is! Map) {
+      throw ApiException(
+        code: 'invalid-response',
+        message: 'API response is missing visit.',
+      );
+    }
+    return VisitModel.fromMap(visitRaw.cast<String, dynamic>());
   }
 
   static String _resolveBaseUrl(String? provided) {

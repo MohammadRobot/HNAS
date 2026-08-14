@@ -6,12 +6,24 @@ class AppUserProfile {
     required this.role,
     this.agencyId,
     this.displayName,
+    this.patientId,
+    this.patientIds = const <String>[],
   });
 
   final String uid;
   final String role;
   final String? agencyId;
   final String? displayName;
+  final String? patientId;
+  final List<String> patientIds;
+
+  List<String> get accessiblePatientIds {
+    final ids = <String>{...patientIds};
+    if (patientId != null && patientId!.isNotEmpty) {
+      ids.add(patientId!);
+    }
+    return ids.toList(growable: false);
+  }
 
   factory AppUserProfile.fromMap(String uid, Map<String, dynamic> map) {
     return AppUserProfile(
@@ -19,6 +31,8 @@ class AppUserProfile {
       role: _readString(map['role']) ?? 'viewer',
       agencyId: _readString(map['agencyId']),
       displayName: _readString(map['displayName']),
+      patientId: _readString(map['patientId']),
+      patientIds: _readStringList(map['patientIds']),
     );
   }
 }
@@ -140,8 +154,9 @@ class MedicineModel {
       startDate: _readDateId(map['startDate']),
       recurrenceMode: recurrenceMode == 'interval' ? 'interval' : 'daily',
       recurrenceEvery: recurrenceEvery,
-      recurrenceUnit:
-          _normalizeRecurrenceUnit(_readString(map['recurrenceUnit'])),
+      recurrenceUnit: _normalizeRecurrenceUnit(
+        _readString(map['recurrenceUnit']),
+      ),
     );
   }
 }
@@ -411,9 +426,8 @@ class DailyChecklistModel {
           ? tasksRaw
               .whereType<Map>()
               .map(
-                (entry) => ChecklistTaskModel.fromMap(
-                  entry.cast<String, dynamic>(),
-                ),
+                (entry) =>
+                    ChecklistTaskModel.fromMap(entry.cast<String, dynamic>()),
               )
               .toList()
           : const <ChecklistTaskModel>[],
@@ -432,9 +446,75 @@ class DailyChecklistModel {
   }
 
   Map<String, ChecklistResultModel> resultByTaskId() {
-    return {
-      for (final result in results) result.taskId: result,
-    };
+    return {for (final result in results) result.taskId: result};
+  }
+}
+
+class VisitModel {
+  const VisitModel({
+    required this.id,
+    required this.patientId,
+    required this.patientName,
+    required this.dateId,
+    required this.status,
+    required this.taskCount,
+    required this.completedTaskCount,
+    required this.pendingTaskCount,
+    required this.issueCount,
+    this.agencyId,
+    this.assignedCaregiverIds = const <String>[],
+    this.caregiverId,
+    this.scheduledStart,
+    this.arrivedAt,
+    this.completedAt,
+    this.currentTaskId,
+    this.summaryNote,
+  });
+
+  final String id;
+  final String patientId;
+  final String patientName;
+  final String dateId;
+  final String status;
+  final int taskCount;
+  final int completedTaskCount;
+  final int pendingTaskCount;
+  final int issueCount;
+  final String? agencyId;
+  final List<String> assignedCaregiverIds;
+  final String? caregiverId;
+  final String? scheduledStart;
+  final String? arrivedAt;
+  final String? completedAt;
+  final String? currentTaskId;
+  final String? summaryNote;
+
+  bool get isCompleted => status == 'completed';
+  bool get isInProgress => status == 'in_progress';
+  bool get needsAttention => issueCount > 0 || status == 'needs_attention';
+  double get progress =>
+      taskCount == 0 ? 0 : (completedTaskCount / taskCount).clamp(0.0, 1.0);
+
+  factory VisitModel.fromMap(Map<String, dynamic> map) {
+    return VisitModel(
+      id: _readString(map['id']) ?? '',
+      patientId: _readString(map['patientId']) ?? '',
+      patientName: _readString(map['patientName']) ?? 'Unnamed Patient',
+      dateId: _readString(map['dateId']) ?? '',
+      status: _readString(map['status']) ?? 'scheduled',
+      taskCount: _readInt(map['taskCount']) ?? 0,
+      completedTaskCount: _readInt(map['completedTaskCount']) ?? 0,
+      pendingTaskCount: _readInt(map['pendingTaskCount']) ?? 0,
+      issueCount: _readInt(map['issueCount']) ?? 0,
+      agencyId: _readString(map['agencyId']),
+      assignedCaregiverIds: _readStringList(map['assignedCaregiverIds']),
+      caregiverId: _readString(map['caregiverId']),
+      scheduledStart: _readString(map['scheduledStart']),
+      arrivedAt: _readString(map['arrivedAt']),
+      completedAt: _readString(map['completedAt']),
+      currentTaskId: _readString(map['currentTaskId']),
+      summaryNote: _readString(map['summaryNote']),
+    );
   }
 }
 
@@ -575,6 +655,10 @@ class ManagedUserModel {
         return 'Supervisor';
       case 'nurse':
         return 'Nurse';
+      case 'patient':
+        return 'Patient';
+      case 'relative':
+        return 'Relative';
       default:
         return role;
     }

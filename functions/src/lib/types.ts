@@ -282,6 +282,33 @@ export interface DailyChecklist {
   updatedAt: IsoDateTimeString;
 }
 
+export type VisitStatus =
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+  | 'needs_attention';
+
+export interface Visit {
+  id: EntityId;
+  patientId: EntityId;
+  patientName: string;
+  dateId: DateId;
+  status: VisitStatus;
+  agencyId?: EntityId;
+  assignedCaregiverIds: EntityId[];
+  caregiverId?: EntityId;
+  scheduledStart?: string;
+  arrivedAt?: IsoDateTimeString;
+  completedAt?: IsoDateTimeString;
+  currentTaskId?: EntityId;
+  taskCount: number;
+  completedTaskCount: number;
+  pendingTaskCount: number;
+  issueCount: number;
+  createdAt: IsoDateTimeString;
+  updatedAt: IsoDateTimeString;
+}
+
 export interface AiQaLog {
   id: EntityId;
   patientId: EntityId;

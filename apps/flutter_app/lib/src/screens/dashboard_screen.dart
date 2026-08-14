@@ -22,11 +22,27 @@ const Map<String, String> _genderOptions = <String, String>{
   'prefer_not_to_say': 'Prefer not to say',
 };
 
-class DashboardScreen extends ConsumerWidget {
+class DashboardScreen extends ConsumerStatefulWidget {
   const DashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+enum _PatientFilter { all, needsAttention, inactive }
+
+class _DashboardScreenState extends ConsumerState<DashboardScreen> {
+  final _searchController = TextEditingController();
+  _PatientFilter _patientFilter = _PatientFilter.all;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final profileAsync = ref.watch(userProfileProvider);
     final patientsAsync = ref.watch(patientsStreamProvider);
     final countsAsync = ref.watch(dashboardCountsProvider);
@@ -60,7 +76,9 @@ class DashboardScreen extends ConsumerWidget {
       }
 
       try {
-        final patientId = await ref.read(apiClientProvider).createPatient(
+        final patientId = await ref
+            .read(apiClientProvider)
+            .createPatient(
               fullName: input.fullName,
               timezone: input.timezone,
               active: input.active,
@@ -93,9 +111,9 @@ class DashboardScreen extends ConsumerWidget {
           return;
         }
         final l = AppLocalizations.of(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.patientCreated)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l.patientCreated)));
         context.push('/patient/$patientId');
       } catch (error) {
         if (!context.mounted) {
@@ -179,10 +197,41 @@ class DashboardScreen extends ConsumerWidget {
             );
           }
 
+          final query = _searchController.text.trim().toLowerCase();
+          final visiblePatients = patients.where((patient) {
+            final matchesSearch =
+                query.isEmpty ||
+                patient.fullName.toLowerCase().contains(query) ||
+                patient.diagnosis.any(
+                  (value) => value.toLowerCase().contains(query),
+                ) ||
+                patient.riskFlags.any(
+                  (value) => value.toLowerCase().contains(query),
+                );
+            final matchesFilter = switch (_patientFilter) {
+              _PatientFilter.all => true,
+              _PatientFilter.needsAttention =>
+                patient.active &&
+                    (patient.riskFlags.isNotEmpty ||
+                        patient.allergies.isNotEmpty),
+              _PatientFilter.inactive => !patient.active,
+            };
+            return matchesSearch && matchesFilter;
+          }).toList();
+
+          if (visiblePatients.isEmpty) {
+            return _EmptyPatientResults(
+              onClear: () {
+                _searchController.clear();
+                setState(() => _patientFilter = _PatientFilter.all);
+              },
+            );
+          }
+
           return Card(
             clipBehavior: Clip.antiAlias,
             child: Column(
-              children: patients
+              children: visiblePatients
                   .map((patient) => _PatientTile(patient: patient))
                   .toList(),
             ),
@@ -208,15 +257,18 @@ class DashboardScreen extends ConsumerWidget {
       appBar: AppBar(
         title: Text(l.dashboard),
         actions: <Widget>[
+          IconButton(
+            tooltip: l.todayCare,
+            onPressed: () => context.go('/today'),
+            icon: const Icon(Icons.today_outlined),
+          ),
           if (profile?.displayName != null)
             Padding(
               padding: const EdgeInsets.only(right: 4),
               child: Center(
                 child: Chip(
                   avatar: const Icon(Icons.verified_user_outlined, size: 16),
-                  label: Text(
-                    '${profile!.displayName} • ${l.roleLabel(role)}',
-                  ),
+                  label: Text('${profile!.displayName} • ${l.roleLabel(role)}'),
                 ),
               ),
             ),
@@ -263,34 +315,68 @@ class DashboardScreen extends ConsumerWidget {
               color: Colors.white,
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: Theme.of(context)
-                    .colorScheme
-                    .outlineVariant
-                    .withValues(alpha: 0.5),
+                color: Theme.of(
+                  context,
+                ).colorScheme.outlineVariant.withValues(alpha: 0.5),
               ),
             ),
             child: buildCountsContent(),
           ),
           const SizedBox(height: 18),
-          Row(
-            children: <Widget>[
-              Text(
-                l.patientDirectory,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-              const Spacer(),
-              Text(
-                l.tapToOpenDetails,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color:
-                          Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
+          Text(
+            l.patientDirectory,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
+          TextField(
+            controller: _searchController,
+            onChanged: (_) => setState(() {}),
+            decoration: InputDecoration(
+              hintText: l.searchPatients,
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: _searchController.text.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: l.clearFilters,
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() {});
+                      },
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<_PatientFilter>(
+              showSelectedIcon: false,
+              segments: <ButtonSegment<_PatientFilter>>[
+                ButtonSegment(
+                  value: _PatientFilter.all,
+                  icon: const Icon(Icons.people_alt_outlined),
+                  label: Text(l.filterAll),
+                ),
+                ButtonSegment(
+                  value: _PatientFilter.needsAttention,
+                  icon: const Icon(Icons.priority_high_rounded),
+                  label: Text(l.needsAttention),
+                ),
+                ButtonSegment(
+                  value: _PatientFilter.inactive,
+                  icon: const Icon(Icons.person_off_outlined),
+                  label: Text(l.inactive),
+                ),
+              ],
+              selected: <_PatientFilter>{_patientFilter},
+              onSelectionChanged: (selection) {
+                setState(() => _patientFilter = selection.first);
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
           buildPatientsContent(),
         ],
       ),
@@ -364,17 +450,17 @@ class _DashboardHero extends StatelessWidget {
                     Text(
                       l.careOperations,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: -0.3,
-                          ),
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.3,
+                      ),
                     ),
                     const SizedBox(height: 2),
                     Text(
                       '${l.role}: ${l.roleLabel(role)}',
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: Colors.white.withValues(alpha: 0.8),
-                          ),
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
                     ),
                   ],
                 ),
@@ -487,9 +573,7 @@ class _CountTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: accentColor.withValues(alpha: 0.2),
-        ),
+        border: Border.all(color: accentColor.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
             color: accentColor.withValues(alpha: 0.08),
@@ -507,11 +591,7 @@ class _CountTile extends StatelessWidget {
               color: accentColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(
-              icon,
-              size: 16,
-              color: accentColor,
-            ),
+            child: Icon(icon, size: 16, color: accentColor),
           ),
           const SizedBox(height: 10),
           Text(
@@ -560,6 +640,9 @@ class _PatientTile extends StatelessWidget {
       if (ageText != null) ageText,
       if (patient.phoneNumber != null) patient.phoneNumber!,
     ];
+    final needsAttention =
+        patient.active &&
+        (patient.riskFlags.isNotEmpty || patient.allergies.isNotEmpty);
 
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
@@ -569,16 +652,100 @@ class _PatientTile extends StatelessWidget {
             : Colors.grey.shade300,
         child: Text(patient.fullName.isEmpty ? '?' : patient.fullName[0]),
       ),
-      title: Text(patient.fullName),
+      title: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              patient.fullName,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+          if (!patient.active)
+            _StatusPill(label: l.inactive, isAlert: false)
+          else if (needsAttention)
+            _StatusPill(label: l.needsAttention, isAlert: true),
+        ],
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (info.isNotEmpty) Text(info.join(' • ')),
           Text(subtitleParts.join(' | ')),
+          if (patient.allergies.isNotEmpty)
+            Text(
+              '${l.allergies}: ${patient.allergies.join(', ')}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFFB42318),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
         ],
       ),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: () => context.push('/patient/${patient.id}'),
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.label, required this.isAlert});
+
+  final String label;
+  final bool isAlert;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isAlert ? const Color(0xFFB42318) : const Color(0xFF475467);
+    return Container(
+      margin: const EdgeInsetsDirectional.only(start: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.09),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyPatientResults extends StatelessWidget {
+  const _EmptyPatientResults({required this.onClear});
+
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Column(
+            children: <Widget>[
+              Icon(
+                Icons.person_search_outlined,
+                size: 36,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              const SizedBox(height: 10),
+              Text(
+                l.noMatchingPatients,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton(onPressed: onClear, child: Text(l.clearFilters)),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -592,19 +759,13 @@ class _LoadingBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       height: height,
-      child: const Center(
-        child: CircularProgressIndicator(),
-      ),
+      child: const Center(child: CircularProgressIndicator()),
     );
   }
 }
 
 class _NoticeCard extends StatelessWidget {
-  const _NoticeCard({
-    required this.message,
-    this.actionLabel,
-    this.onAction,
-  });
+  const _NoticeCard({required this.message, this.actionLabel, this.onAction});
 
   final String message;
   final String? actionLabel;
@@ -629,7 +790,6 @@ class _NoticeCard extends StatelessWidget {
                 label: Text(actionLabel!),
               ),
             ],
-
           ],
         ),
       ),
@@ -649,9 +809,9 @@ class _LocaleToggleButton extends ConsumerWidget {
       tooltip: l.language,
       icon: const Icon(Icons.language_rounded),
       onPressed: () {
-        ref.read(localeProvider.notifier).setLocale(
-              isArabic ? const Locale('en') : const Locale('ar'),
-            );
+        ref
+            .read(localeProvider.notifier)
+            .setLocale(isArabic ? const Locale('en') : const Locale('ar'));
       },
     );
   }
@@ -909,10 +1069,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
                   },
                 ),
                 const SizedBox(height: 12),
-                Text(
-                  l.contact,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
+                Text(l.contact, style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 10),
                 TextFormField(
                   controller: _phoneNumberController,
@@ -1167,9 +1324,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
                   TextFormField(
                     controller: _agencyIdController,
                     textInputAction: TextInputAction.done,
-                    decoration: const InputDecoration(
-                      labelText: 'Agency ID',
-                    ),
+                    decoration: const InputDecoration(labelText: 'Agency ID'),
                     validator: (value) {
                       if (value == null || value.trim().isEmpty) {
                         return 'Agency ID is required.';
@@ -1199,10 +1354,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: Text(l.cancel),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: Text(l.createPatient),
-        ),
+        FilledButton(onPressed: _submit, child: Text(l.createPatient)),
       ],
     );
   }
@@ -1234,14 +1386,16 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
         bloodPressureSystolic <= bloodPressureDiastolic) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content:
-              Text('Blood pressure systolic must be higher than diastolic.'),
+          content: Text(
+            'Blood pressure systolic must be higher than diastolic.',
+          ),
         ),
       );
       return;
     }
 
-    final hasInitialHealthMetrics = weightKg != null ||
+    final hasInitialHealthMetrics =
+        weightKg != null ||
         temperatureC != null ||
         bloodPressureSystolic != null ||
         bloodPressureDiastolic != null ||
@@ -1275,8 +1429,8 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
         initialSpo2Pct: spo2Pct,
         initialHealthCheckNotes:
             hasInitialHealthMetrics && healthCheckNotes.isNotEmpty
-                ? healthCheckNotes
-                : null,
+            ? healthCheckNotes
+            : null,
         agencyId: agencyId.isEmpty ? null : agencyId,
         assignedNurseIds: assignedNurseIds,
       ),
@@ -1287,7 +1441,7 @@ class _CreatePatientDialogState extends State<_CreatePatientDialog> {
     final initial = _dateOfBirthController.text.trim().isEmpty
         ? DateTime.now()
         : DateTime.tryParse('${_dateOfBirthController.text.trim()}T00:00:00') ??
-            DateTime.now();
+              DateTime.now();
 
     final picked = await showDatePicker(
       context: context,

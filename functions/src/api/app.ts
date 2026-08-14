@@ -29,6 +29,7 @@ import {
 import {firestore, toDateId} from '../lib/firestore';
 import {getDateIdForTimeZone, normalizeTimeZone} from '../lib/timezone';
 import {type DailyChecklist, type Task} from '../lib/types';
+import {findVisitStartTime, summarizeVisitProgress} from '../lib/visits';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -187,6 +188,7 @@ const ALLOWED_RECURRENCE_UNITS = new Set<string>([
 const REPORTS_COLLECTION = 'reports';
 const REPORTS_DAILY_DOC_ID = 'daily';
 const REPORTS_BY_DATE_SUBCOLLECTION = 'byDate';
+const VISITS_COLLECTION = 'visits';
 const MANAGEABLE_USER_ROLES = new Set<string>([
   'admin',
   'supervisor',
@@ -272,6 +274,214 @@ app.post('/api/dashboard/counts', asyncRoute(async (req, res) => {
     late,
     skipped,
   });
+}));
+
+app.post('/api/visits/today', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+
+  const body = toOptionalBodyObject(req.body);
+  const date = readOptionalString(body, 'date') ?? toDateId(new Date());
+  assertDateId(date, 'date');
+
+  let patientQuery: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> =
+    firestore.collection('patients').where('active', '==', true);
+  if (context.user.role === 'nurse') {
+    patientQuery = patientQuery.where(
+        'assignedNurseIds',
+        'array-contains',
+        context.uid,
+    );
+  } else {
+    patientQuery = patientQuery.where(
+        'agencyId',
+        '==',
+        requireUserAgencyId(context.user),
+    );
+  }
+
+  const patientSnapshot = await patientQuery.get();
+  const checklistRefs = patientSnapshot.docs.map((patientDoc) => (
+    patientDoc.ref.collection('dailyChecklists').doc(date)
+  ));
+  const visitRefs = patientSnapshot.docs.map((patientDoc) => (
+    firestore.collection(VISITS_COLLECTION).doc(buildVisitId(date, patientDoc.id))
+  ));
+  const [checklistSnapshots, visitSnapshots] = await Promise.all([
+    checklistRefs.length > 0 ? firestore.getAll(...checklistRefs) : [],
+    visitRefs.length > 0 ? firestore.getAll(...visitRefs) : [],
+  ]);
+
+  const nowIso = new Date().toISOString();
+  const batch = firestore.batch();
+  const visits: UnknownRecord[] = [];
+
+  patientSnapshot.docs.forEach((patientDoc, index) => {
+    const patient = (patientDoc.data() ?? {}) as UnknownRecord;
+    const checklist = checklistSnapshots[index]?.exists ?
+      (checklistSnapshots[index].data() ?? {}) as UnknownRecord :
+      {};
+    const tasks = toTaskList(checklist.tasks);
+    const results = toMutableTaskResults(checklist.results);
+    const progress = summarizeVisitProgress(tasks, results);
+    const existing = visitSnapshots[index]?.exists ?
+      (visitSnapshots[index].data() ?? {}) as UnknownRecord :
+      {};
+    const visitId = buildVisitId(date, patientDoc.id);
+    const existingStatus = readRecordString(existing, 'status');
+    const status = normalizeVisitStatus(existingStatus, progress.pendingTaskCount);
+    const createdAt = readRecordString(existing, 'createdAt') ?? nowIso;
+    const assignedCaregiverIds = readRecordStringArray(patient, 'assignedNurseIds');
+    const scheduledStart = findVisitStartTime(tasks);
+
+    const visit: UnknownRecord = {
+      ...existing,
+      id: visitId,
+      patientId: patientDoc.id,
+      patientName: readRecordString(patient, 'fullName') ?? 'Unnamed patient',
+      dateId: date,
+      status,
+      assignedCaregiverIds,
+      taskCount: progress.taskCount,
+      completedTaskCount: progress.completedTaskCount,
+      pendingTaskCount: progress.pendingTaskCount,
+      issueCount: progress.issueCount,
+      createdAt,
+      updatedAt: nowIso,
+    };
+    const agencyId = readRecordString(patient, 'agencyId');
+    if (agencyId) {
+      visit.agencyId = agencyId;
+    }
+    if (scheduledStart) {
+      visit.scheduledStart = scheduledStart;
+    } else {
+      delete visit.scheduledStart;
+    }
+    if (progress.currentTaskId) {
+      visit.currentTaskId = progress.currentTaskId;
+    } else {
+      delete visit.currentTaskId;
+    }
+
+    batch.set(visitRefs[index], visit, {merge: false});
+    visits.push(visit);
+  });
+
+  if (visits.length > 0) {
+    await batch.commit();
+  }
+  visits.sort(compareVisitRecords);
+
+  res.status(200).json({
+    ok: true,
+    date,
+    visits,
+  });
+}));
+
+app.post('/api/visits/get', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+  const body = requireBodyObject(req.body);
+  const visitId = readRequiredString(body, 'visitId');
+  const visitSnapshot = await firestore.collection(VISITS_COLLECTION).doc(visitId).get();
+  const visit = requireVisitRecord(visitSnapshot, visitId);
+  const patientId = readRequiredStoredString(visit, 'patientId', 'Visit is missing patientId.');
+  await assertPatientAccess(context.user, patientId);
+
+  res.status(200).json({
+    ok: true,
+    visit: {id: visitSnapshot.id, ...visit},
+  });
+}));
+
+app.post('/api/visits/start', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+  const body = requireBodyObject(req.body);
+  const visitId = readRequiredString(body, 'visitId');
+  const visitRef = firestore.collection(VISITS_COLLECTION).doc(visitId);
+  const visitSnapshot = await visitRef.get();
+  const visit = requireVisitRecord(visitSnapshot, visitId);
+  const patientId = readRequiredStoredString(visit, 'patientId', 'Visit is missing patientId.');
+  await assertPatientAccess(context.user, patientId);
+
+  if (readRecordString(visit, 'status') === 'completed') {
+    throw new HttpError(409, 'visit-completed', 'A completed visit cannot be restarted.');
+  }
+
+  const nowIso = new Date().toISOString();
+  const patch: UnknownRecord = {
+    status: 'in_progress',
+    caregiverId: context.uid,
+    arrivedAt: readRecordString(visit, 'arrivedAt') ?? nowIso,
+    updatedAt: nowIso,
+  };
+  await visitRef.set(patch, {merge: true});
+
+  res.status(200).json({
+    ok: true,
+    visit: {id: visitId, ...visit, ...patch},
+  });
+}));
+
+app.post('/api/visits/complete', asyncRoute(async (req, res) => {
+  const context = await getAuthContext(req);
+  assertRole(context.user, ['admin', 'supervisor', 'nurse']);
+  const body = requireBodyObject(req.body);
+  const visitId = readRequiredString(body, 'visitId');
+  const summaryNote = readOptionalString(body, 'summaryNote');
+  const visitRef = firestore.collection(VISITS_COLLECTION).doc(visitId);
+
+  const completedVisit = await firestore.runTransaction(async (transaction) => {
+    const visitSnapshot = await transaction.get(visitRef);
+    const visit = requireVisitRecord(visitSnapshot, visitId);
+    const patientId = readRequiredStoredString(
+        visit,
+        'patientId',
+        'Visit is missing patientId.',
+    );
+    await assertPatientAccess(context.user, patientId);
+    const dateId = readRequiredStoredString(visit, 'dateId', 'Visit is missing dateId.');
+    const checklistRef = firestore
+        .collection('patients')
+        .doc(patientId)
+        .collection('dailyChecklists')
+        .doc(dateId);
+    const checklistSnapshot = await transaction.get(checklistRef);
+    const checklist = checklistSnapshot.exists ?
+      (checklistSnapshot.data() ?? {}) as UnknownRecord :
+      {};
+    const progress = summarizeVisitProgress(
+        toTaskList(checklist.tasks),
+        toMutableTaskResults(checklist.results),
+    );
+    if (progress.pendingTaskCount > 0) {
+      throw new HttpError(
+          409,
+          'visit-has-pending-tasks',
+          `Resolve ${progress.pendingTaskCount} pending task(s) before completing the visit.`,
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const patch: UnknownRecord = {
+      status: 'completed',
+      caregiverId: context.uid,
+      completedAt: nowIso,
+      ...progress,
+      updatedAt: nowIso,
+    };
+    delete patch.currentTaskId;
+    if (summaryNote) {
+      patch.summaryNote = summaryNote;
+    }
+    transaction.set(visitRef, patch, {merge: true});
+    return {id: visitId, ...visit, ...patch};
+  });
+
+  res.status(200).json({ok: true, visit: completedVisit});
 }));
 
 app.post('/api/users/list', asyncRoute(async (req, res) => {
@@ -1595,9 +1805,13 @@ app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
       .doc(patientId)
       .collection('dailyChecklists')
       .doc(date);
+  const visitRef = firestore
+      .collection(VISITS_COLLECTION)
+      .doc(buildVisitId(date, patientId));
 
   const updatedResult = await firestore.runTransaction(async (transaction) => {
     const snapshot = await transaction.get(checklistRef);
+    const visitSnapshot = await transaction.get(visitRef);
     if (!snapshot.exists) {
       throw new HttpError(
           404,
@@ -1646,6 +1860,18 @@ app.post('/api/checklist/updateTask', asyncRoute(async (req, res) => {
         },
         {merge: true},
     );
+
+    if (visitSnapshot.exists) {
+      const progress = summarizeVisitProgress(tasks, results);
+      const visitPatch: UnknownRecord = {
+        ...progress,
+        updatedAt: nowIso,
+      };
+      if (!progress.currentTaskId) {
+        visitPatch.currentTaskId = FieldValue.delete();
+      }
+      transaction.set(visitRef, visitPatch, {merge: true});
+    }
 
     return {...result};
   });
@@ -3030,6 +3256,61 @@ function readRecordString(record: UnknownRecord | undefined, key: string): strin
   }
 
   return value.trim();
+}
+
+function buildVisitId(dateId: string, patientId: string): string {
+  return `${dateId}_${patientId}`.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+function requireVisitRecord(
+    snapshot: FirebaseFirestore.DocumentSnapshot<FirebaseFirestore.DocumentData>,
+    visitId: string,
+): UnknownRecord {
+  if (!snapshot.exists) {
+    throw new HttpError(404, 'not-found', `Visit "${visitId}" was not found.`);
+  }
+  return (snapshot.data() ?? {}) as UnknownRecord;
+}
+
+function readRequiredStoredString(
+    record: UnknownRecord,
+    key: string,
+    errorMessage: string,
+): string {
+  const value = readRecordString(record, key);
+  if (!value) {
+    throw new HttpError(500, 'invalid-visit', errorMessage);
+  }
+  return value;
+}
+
+function normalizeVisitStatus(
+    storedStatus: string | undefined,
+    pendingTaskCount: number,
+): string {
+  if (storedStatus === 'completed' && pendingTaskCount === 0) {
+    return 'completed';
+  }
+  if (storedStatus === 'in_progress') {
+    return 'in_progress';
+  }
+  return 'scheduled';
+}
+
+function compareVisitRecords(left: UnknownRecord, right: UnknownRecord): number {
+  const leftCompleted = readRecordString(left, 'status') === 'completed';
+  const rightCompleted = readRecordString(right, 'status') === 'completed';
+  if (leftCompleted !== rightCompleted) {
+    return leftCompleted ? 1 : -1;
+  }
+  const leftTime = readRecordString(left, 'scheduledStart') ?? '99:99';
+  const rightTime = readRecordString(right, 'scheduledStart') ?? '99:99';
+  const byTime = leftTime.localeCompare(rightTime);
+  if (byTime !== 0) {
+    return byTime;
+  }
+  return (readRecordString(left, 'patientName') ?? '')
+      .localeCompare(readRecordString(right, 'patientName') ?? '');
 }
 
 function readRecordNumber(record: UnknownRecord | undefined, key: string): number | undefined {

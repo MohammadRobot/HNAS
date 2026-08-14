@@ -8,8 +8,9 @@ import 'models.dart';
 import 'services/api_client.dart';
 
 /// Drives the app locale. Toggle between Locale('en') and Locale('ar').
-final localeProvider =
-    NotifierProvider<LocaleNotifier, Locale>(LocaleNotifier.new);
+final localeProvider = NotifierProvider<LocaleNotifier, Locale>(
+  LocaleNotifier.new,
+);
 
 class LocaleNotifier extends Notifier<Locale> {
   @override
@@ -102,11 +103,15 @@ final patientsStreamProvider = StreamProvider<List<PatientModel>>((ref) {
       );
     }
     query = query.where('agencyId', isEqualTo: agencyId);
+  } else if (userProfile.role == 'patient' || userProfile.role == 'relative') {
+    final patientIds = userProfile.accessiblePatientIds.take(10).toList();
+    if (patientIds.isEmpty) {
+      return Stream.value(const <PatientModel>[]);
+    }
+    query = query.where(FieldPath.documentId, whereIn: patientIds);
   } else {
     return Stream.error(
-      StateError(
-        'Unsupported role "${userProfile.role}" for patient access.',
-      ),
+      StateError('Unsupported role "${userProfile.role}" for patient access.'),
     );
   }
 
@@ -121,8 +126,10 @@ final patientsStreamProvider = StreamProvider<List<PatientModel>>((ref) {
   );
 });
 
-final patientProvider =
-    StreamProvider.family<PatientModel?, String>((ref, patientId) {
+final patientProvider = StreamProvider.family<PatientModel?, String>((
+  ref,
+  patientId,
+) {
   return _withStreamTimeout(
     ref
         .watch(firestoreProvider)
@@ -139,8 +146,10 @@ final patientProvider =
   );
 });
 
-final medicinesProvider =
-    StreamProvider.family<List<MedicineModel>, String>((ref, patientId) {
+final medicinesProvider = StreamProvider.family<List<MedicineModel>, String>((
+  ref,
+  patientId,
+) {
   return _withStreamTimeout(
     ref
         .watch(firestoreProvider)
@@ -158,8 +167,10 @@ final medicinesProvider =
   );
 });
 
-final proceduresProvider =
-    StreamProvider.family<List<ProcedureModel>, String>((ref, patientId) {
+final proceduresProvider = StreamProvider.family<List<ProcedureModel>, String>((
+  ref,
+  patientId,
+) {
   return _withStreamTimeout(
     ref
         .watch(firestoreProvider)
@@ -177,8 +188,10 @@ final proceduresProvider =
   );
 });
 
-final labTestsProvider =
-    StreamProvider.family<List<LabTestModel>, String>((ref, patientId) {
+final labTestsProvider = StreamProvider.family<List<LabTestModel>, String>((
+  ref,
+  patientId,
+) {
   return _withStreamTimeout(
     ref
         .watch(firestoreProvider)
@@ -252,10 +265,7 @@ final insulinProfilesProvider =
 });
 
 class ChecklistQuery {
-  const ChecklistQuery({
-    required this.patientId,
-    required this.dateId,
-  });
+  const ChecklistQuery({required this.patientId, required this.dateId});
 
   final String patientId;
   final String dateId;
@@ -294,8 +304,10 @@ final checklistProvider =
   );
 });
 
-final reportsProvider =
-    StreamProvider.family<List<DailyReportModel>, String>((ref, patientId) {
+final reportsProvider = StreamProvider.family<List<DailyReportModel>, String>((
+  ref,
+  patientId,
+) {
   return _withStreamTimeout(
     ref
         .watch(firestoreProvider)
@@ -347,7 +359,9 @@ final healthCheckPlansProvider =
         .snapshots()
         .map((snapshot) {
       return snapshot.docs
-          .map((doc) => HealthCheckPlanModel.fromMap(doc.id, doc.data()))
+          .map(
+            (doc) => HealthCheckPlanModel.fromMap(doc.id, doc.data()),
+          )
           .toList()
         ..sort((a, b) => a.label.compareTo(b.label));
     }),
@@ -355,8 +369,10 @@ final healthCheckPlansProvider =
   );
 });
 
-final todayReportProvider =
-    StreamProvider.family<DailyReportModel?, String>((ref, patientId) {
+final todayReportProvider = StreamProvider.family<DailyReportModel?, String>((
+  ref,
+  patientId,
+) {
   final dateId = ref.watch(todayDateIdProvider);
   return _withStreamTimeout(
     ref
@@ -394,9 +410,26 @@ final dashboardCountsProvider = FutureProvider<DashboardCounts>((ref) async {
   return ref.read(apiClientProvider).fetchDashboardCounts(date: dateId);
 });
 
+final todayVisitsProvider = FutureProvider.family<List<VisitModel>, String>((
+  ref,
+  dateId,
+) async {
+  final profile = await ref.watch(userProfileProvider.future);
+  if (profile == null) {
+    return const <VisitModel>[];
+  }
+  return ref.read(apiClientProvider).fetchTodayVisits(date: dateId);
+});
+
+final visitProvider = FutureProvider.family<VisitModel, String>(
+  (ref, visitId) => ref.read(apiClientProvider).fetchVisit(visitId: visitId),
+);
+
 Stream<T> _withStreamTimeout<T>(Stream<T> stream, String label) {
-  const useFirebaseEmulators =
-      bool.fromEnvironment('HNAS_USE_FIREBASE_EMULATORS', defaultValue: true);
+  const useFirebaseEmulators = bool.fromEnvironment(
+    'HNAS_USE_FIREBASE_EMULATORS',
+    defaultValue: true,
+  );
 
   // Work around a Firestore Web SDK assertion crash seen with wrapped
   // watch streams while connected to the local emulator.

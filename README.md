@@ -21,11 +21,14 @@ HNAS is centered around a daily care workflow:
 - Firebase Auth login for staff users (Email/Password + Google on web)
 - role-aware patient access for admins, supervisors, and nurses
 - dashboard with patient list and same-day counts
+- caregiver-first Today screen with daily visits and checklist progress
+- one-task-at-a-time guided-care mode with structured task outcomes
 - patient details with tabs for overview, medications, procedures, lab tests, checklist, reports, and AI assistant
 - deterministic rapid insulin preview logic in the Flutter app
 - HTTPS API for task updates and AI requests
 - HTTPS API for role-scoped dashboard counts aggregation
 - Firestore streams for patient, checklist, and report reads
+- visit lifecycle APIs for starting, monitoring, and safely completing a care visit
 - timezone-aware scheduled checklist generation and end-of-day sweep jobs
 - Firestore trigger logic for task logging, insulin calculations, and issue creation
 - Firestore security rules for user, patient, subcollection, template, and AI QA access
@@ -70,6 +73,26 @@ Firestore is the source of truth for:
 - patient subcollections such as medicines, procedures, insulin profiles, reports, issues, task logs, and AI QA logs
 - daily checklists generated per patient and date
 - procedure templates
+- daily visit progress documents derived from patient checklists
+
+## Guided Care Workflow
+
+After sign-in, HNAS opens the caregiver-focused **Today** screen. The screen
+creates a daily visit view for each accessible active patient and derives its
+progress from that patient's checklist.
+
+1. Select **Start visit** for the patient.
+2. Work through one task at a time in **Guided care**.
+3. Record each task as **Done**, **Patient declined**, **Could not complete**,
+   or **Need help**.
+4. Non-routine outcomes require a note and are surfaced as items needing
+   attention.
+5. Review the visit summary and finish the visit. HNAS blocks completion while
+   any checklist task remains pending.
+
+The underlying checklist remains the source of truth. Visit documents cache
+the current task, progress totals, caregiver, arrival/completion timestamps,
+and attention count so the Today screen stays simple and fast.
 
 ## Repository Structure
 
@@ -107,6 +130,7 @@ Install these tools before starting:
 
 - Flutter SDK
 - Node.js 22 and npm
+- Java 21 (required by the Firestore emulator)
 - Firebase CLI
 
 If you use `nvm`, this repository includes a `.nvmrc` pinned to Node 22:
@@ -115,6 +139,16 @@ If you use `nvm`, this repository includes a `.nvmrc` pinned to Node 22:
 nvm install
 nvm use
 ```
+
+On macOS with Homebrew, the remaining emulator tools can be installed with:
+
+```bash
+brew install openjdk@21 firebase-cli
+```
+
+`npm run serve:functions` automatically detects Homebrew Java 21 on Apple
+Silicon and Intel Macs, with the existing local Temurin path retained as a
+fallback.
 
 ### Firebase Setup Step By Step
 
@@ -336,6 +370,10 @@ cd ~/HNAS
 npm --prefix functions run seed:demo
 ```
 
+The demo seed now includes a four-step daily checklist (blood pressure,
+medication, supported mobility, and rapid-insulin documentation), allowing the
+Today and Guided care screens to be exercised immediately.
+
 Terminal C: run Flutter web app against emulators
 
 ```bash
@@ -415,6 +453,12 @@ Demo login credentials:
 
 - `admin@hnas.local` / `Passw0rd!`
 - `nurse@hnas.local` / `Passw0rd!`
+- `patient@hnas.local` / `Passw0rd!`
+- `relative@hnas.local` / `Passw0rd!`
+
+Patient and relative accounts open a read-only care portal. The patient account
+is linked through `patientId`; relative accounts can be linked to one or more
+patients through `patientIds` on their `/users/{uid}` profile.
 
 Optional API smoke check:
 

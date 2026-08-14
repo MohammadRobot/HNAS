@@ -96,12 +96,36 @@ class _OverviewTab extends ConsumerWidget {
               );
             }
 
-            return Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                _PatientSafetySummary(patient: patient),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: <Widget>[
+                    FilledButton.icon(
+                      onPressed: () =>
+                          DefaultTabController.of(context).animateTo(4),
+                      icon: const Icon(Icons.checklist_rounded),
+                      label: Text(l.todaysChecklist),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () =>
+                          DefaultTabController.of(context).animateTo(5),
+                      icon: const Icon(Icons.monitor_heart_outlined),
+                      label: Text(l.recordHealthCheck),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
                     Row(
                       children: <Widget>[
                         Expanded(
@@ -177,9 +201,11 @@ class _OverviewTab extends ConsumerWidget {
                       label: l.notes,
                       value: patient.notes ?? '-',
                     ),
-                  ],
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             );
           },
           loading: () => const _LoadingCard(),
@@ -298,6 +324,72 @@ class _OverviewTab extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PatientSafetySummary extends StatelessWidget {
+  const _PatientSafetySummary({required this.patient});
+
+  final PatientModel patient;
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context);
+    final hasWarnings =
+        patient.allergies.isNotEmpty || patient.riskFlags.isNotEmpty;
+    final color = hasWarnings
+        ? const Color(0xFFB42318)
+        : const Color(0xFF067647);
+
+    return Semantics(
+      label: hasWarnings ? l.safetyAlerts : l.noSafetyAlerts,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.08),
+          border: Border.all(color: color.withValues(alpha: 0.28)),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            Icon(
+              hasWarnings
+                  ? Icons.warning_amber_rounded
+                  : Icons.verified_user_outlined,
+              color: color,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    hasWarnings ? l.safetyAlerts : l.noSafetyAlerts,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: color,
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  if (patient.allergies.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 4),
+                    Text('${l.allergies}: ${patient.allergies.join(', ')}'),
+                  ],
+                  if (patient.riskFlags.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Text('${l.riskFlags}: ${patient.riskFlags.join(', ')}'),
+                  ],
+                  if (!hasWarnings) ...<Widget>[
+                    const SizedBox(height: 3),
+                    Text(l.noSafetyAlertsRecorded),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

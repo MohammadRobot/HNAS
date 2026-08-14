@@ -14,19 +14,14 @@ class AppLocalizations {
   static const LocalizationsDelegate<AppLocalizations> delegate =
       _AppLocalizationsDelegate();
 
-  static const List<Locale> supportedLocales = [
-    Locale('en'),
-    Locale('ar'),
-  ];
+  static const List<Locale> supportedLocales = [Locale('en'), Locale('ar')];
 
   bool get isRtl => locale.languageCode == 'ar';
   TextDirection get textDirection =>
       isRtl ? TextDirection.rtl : TextDirection.ltr;
 
   String _t(String key) {
-    return _strings[locale.languageCode]?[key] ??
-        _strings['en']![key] ??
-        key;
+    return _strings[locale.languageCode]?[key] ?? _strings['en']![key] ?? key;
   }
 
   // ── App ────────────────────────────────────────────────────────────────────
@@ -63,11 +58,18 @@ class AppLocalizations {
   String get patientCreated => _t('patientCreated');
   String get unableToCreatePatient => _t('unableToCreatePatient');
   String get noPatients => _t('noPatients');
+  String get searchPatients => _t('searchPatients');
+  String get filterAll => _t('filterAll');
+  String get needsAttention => _t('needsAttention');
+  String get noMatchingPatients => _t('noMatchingPatients');
+  String get clearFilters => _t('clearFilters');
 
   // ── Roles ──────────────────────────────────────────────────────────────────
   String get roleAdmin => _t('roleAdmin');
   String get roleSupervisor => _t('roleSupervisor');
   String get roleNurse => _t('roleNurse');
+  String get rolePatient => _t('rolePatient');
+  String get roleRelative => _t('roleRelative');
   String get role => _t('role');
 
   String roleLabel(String r) {
@@ -78,6 +80,10 @@ class AppLocalizations {
         return roleSupervisor;
       case 'nurse':
         return roleNurse;
+      case 'patient':
+        return rolePatient;
+      case 'relative':
+        return roleRelative;
       default:
         return r;
     }
@@ -118,6 +124,11 @@ class AppLocalizations {
   String get none => _t('none');
   String get notFound => _t('notFound');
   String get invalidPatientId => _t('invalidPatientId');
+  String get safetyAlerts => _t('safetyAlerts');
+  String get noSafetyAlerts => _t('noSafetyAlerts');
+  String get noSafetyAlertsRecorded => _t('noSafetyAlertsRecorded');
+  String get todaysChecklist => _t('todaysChecklist');
+  String get recordHealthCheck => _t('recordHealthCheck');
 
   // ── Users ──────────────────────────────────────────────────────────────────
   String get manageStaffUsers => _t('manageStaffUsers');
@@ -156,6 +167,41 @@ class AppLocalizations {
   String get noChecklist => _t('noChecklist');
   String get generateChecklist => _t('generateChecklist');
 
+  // ── Guided care / visits ──────────────────────────────────────────────────
+  String get todayCare => _t('todayCare');
+  String get todayCareSubtitle => _t('todayCareSubtitle');
+  String get noVisitsToday => _t('noVisitsToday');
+  String get unableToLoadVisits => _t('unableToLoadVisits');
+  String get scheduled => _t('scheduled');
+  String get inProgress => _t('inProgress');
+  String get completed => _t('completed');
+  String get tasksComplete => _t('tasksComplete');
+  String get startVisit => _t('startVisit');
+  String get continueVisit => _t('continueVisit');
+  String get openVisit => _t('openVisit');
+  String get guidedCare => _t('guidedCare');
+  String get backToToday => _t('backToToday');
+  String get taskOf => _t('taskOf');
+  String get previousTask => _t('previousTask');
+  String get nextTask => _t('nextTask');
+  String get markDone => _t('markDone');
+  String get patientDeclined => _t('patientDeclined');
+  String get couldNotComplete => _t('couldNotComplete');
+  String get needHelp => _t('needHelp');
+  String get outcomeNote => _t('outcomeNote');
+  String get noteRequired => _t('noteRequired');
+  String get saveOutcome => _t('saveOutcome');
+  String get taskUpdated => _t('taskUpdated');
+  String get unableToUpdateTask => _t('unableToUpdateTask');
+  String get finishVisit => _t('finishVisit');
+  String get reviewAndFinish => _t('reviewAndFinish');
+  String get visitSummary => _t('visitSummary');
+  String get visitCompleted => _t('visitCompleted');
+  String get pendingTasksRemain => _t('pendingTasksRemain');
+  String get optionalSummaryNote => _t('optionalSummaryNote');
+  String get noTasksForVisit => _t('noTasksForVisit');
+  String get generateChecklistFirst => _t('generateChecklistFirst');
+
   // ── AI assistant ───────────────────────────────────────────────────────────
   String get aiAssistant => _t('aiAssistant');
   String get typeMessage => _t('typeMessage');
@@ -193,8 +239,7 @@ class AppLocalizations {
       'signOut': 'Sign out',
       'signInTimeout':
           'Sign-in timed out. Ensure Firebase emulators are running and reachable.',
-      'googleSignInTimeout':
-          'Google sign-in timed out. Please try again.',
+      'googleSignInTimeout': 'Google sign-in timed out. Please try again.',
       'unableToSignIn': 'Unable to sign in.',
       'unableToSignInWithGoogle': 'Unable to sign in with Google.',
       'googleSignInWebOnly':
@@ -213,11 +258,18 @@ class AppLocalizations {
       'patientCreated': 'Patient created successfully.',
       'unableToCreatePatient': 'Unable to create patient',
       'noPatients': 'No patients available.',
+      'searchPatients': 'Search by name, diagnosis, or risk',
+      'filterAll': 'All',
+      'needsAttention': 'Needs attention',
+      'noMatchingPatients': 'No matching patients.',
+      'clearFilters': 'Clear filters',
 
       // Roles
       'roleAdmin': 'Admin',
       'roleSupervisor': 'Supervisor',
       'roleNurse': 'Nurse',
+      'rolePatient': 'Patient',
+      'roleRelative': 'Relative',
       'role': 'Role',
 
       // Stats
@@ -255,6 +307,11 @@ class AppLocalizations {
       'none': 'None',
       'notFound': 'Patient not found.',
       'invalidPatientId': 'Invalid patient id.',
+      'safetyAlerts': 'Safety alerts',
+      'noSafetyAlerts': 'No safety alerts',
+      'noSafetyAlertsRecorded': 'No allergies or risk flags are recorded.',
+      'todaysChecklist': "Today's checklist",
+      'recordHealthCheck': 'Record health check',
 
       // Users
       'manageStaffUsers': 'Manage Staff Users',
@@ -293,6 +350,42 @@ class AppLocalizations {
       // Checklist
       'noChecklist': 'No checklist for today.',
       'generateChecklist': 'Generate Checklist',
+
+      // Guided care / visits
+      'todayCare': "Today's Care",
+      'todayCareSubtitle': 'A calm, step-by-step view of every visit.',
+      'noVisitsToday': 'No visits are assigned for today.',
+      'unableToLoadVisits': 'Unable to load today’s visits',
+      'scheduled': 'Scheduled',
+      'inProgress': 'In progress',
+      'completed': 'Completed',
+      'tasksComplete': 'tasks complete',
+      'startVisit': 'Start visit',
+      'continueVisit': 'Continue visit',
+      'openVisit': 'Open visit',
+      'guidedCare': 'Guided care',
+      'backToToday': 'Back to Today',
+      'taskOf': 'Task',
+      'previousTask': 'Previous',
+      'nextTask': 'Next',
+      'markDone': 'Done',
+      'patientDeclined': 'Patient declined',
+      'couldNotComplete': 'Could not complete',
+      'needHelp': 'Need help',
+      'outcomeNote': 'What happened?',
+      'noteRequired': 'Add a short note so the care team knows what happened.',
+      'saveOutcome': 'Save outcome',
+      'taskUpdated': 'Task updated.',
+      'unableToUpdateTask': 'Unable to update task',
+      'finishVisit': 'Finish visit',
+      'reviewAndFinish': 'Review and finish',
+      'visitSummary': 'Visit summary',
+      'visitCompleted': 'Visit completed.',
+      'pendingTasksRemain': 'Resolve every pending task before finishing.',
+      'optionalSummaryNote': 'Shift handover note (optional)',
+      'noTasksForVisit': 'There are no tasks in this visit yet.',
+      'generateChecklistFirst':
+          'Generate today’s checklist from the patient record, then refresh.',
 
       // AI
       'aiAssistant': 'AI Assistant',
@@ -346,11 +439,18 @@ class AppLocalizations {
       'patientCreated': 'تم إنشاء المريض بنجاح.',
       'unableToCreatePatient': 'تعذّر إنشاء المريض',
       'noPatients': 'لا يوجد مرضى.',
+      'searchPatients': 'ابحث بالاسم أو التشخيص أو الخطر',
+      'filterAll': 'الكل',
+      'needsAttention': 'يحتاج إلى انتباه',
+      'noMatchingPatients': 'لا يوجد مرضى مطابقون.',
+      'clearFilters': 'مسح عوامل التصفية',
 
       // Roles
       'roleAdmin': 'مسؤول',
       'roleSupervisor': 'مشرف',
       'roleNurse': 'ممرض/ة',
+      'rolePatient': 'مريض',
+      'roleRelative': 'قريب',
       'role': 'الدور',
 
       // Stats
@@ -388,6 +488,11 @@ class AppLocalizations {
       'none': 'لا شيء',
       'notFound': 'المريض غير موجود.',
       'invalidPatientId': 'معرّف المريض غير صالح.',
+      'safetyAlerts': 'تنبيهات السلامة',
+      'noSafetyAlerts': 'لا توجد تنبيهات سلامة',
+      'noSafetyAlertsRecorded': 'لا توجد حساسية أو علامات خطر مسجلة.',
+      'todaysChecklist': 'قائمة مهام اليوم',
+      'recordHealthCheck': 'تسجيل فحص صحي',
 
       // Users
       'manageStaffUsers': 'إدارة موظفي الرعاية',
@@ -427,6 +532,42 @@ class AppLocalizations {
       'noChecklist': 'لا توجد قائمة مهام لليوم.',
       'generateChecklist': 'إنشاء قائمة المهام',
 
+      // Guided care / visits
+      'todayCare': 'رعاية اليوم',
+      'todayCareSubtitle': 'عرض هادئ ومتدرج لكل زيارة.',
+      'noVisitsToday': 'لا توجد زيارات مسندة لهذا اليوم.',
+      'unableToLoadVisits': 'تعذّر تحميل زيارات اليوم',
+      'scheduled': 'مجدولة',
+      'inProgress': 'قيد التنفيذ',
+      'completed': 'مكتملة',
+      'tasksComplete': 'مهام مكتملة',
+      'startVisit': 'بدء الزيارة',
+      'continueVisit': 'متابعة الزيارة',
+      'openVisit': 'فتح الزيارة',
+      'guidedCare': 'الرعاية الموجّهة',
+      'backToToday': 'العودة إلى اليوم',
+      'taskOf': 'المهمة',
+      'previousTask': 'السابقة',
+      'nextTask': 'التالية',
+      'markDone': 'تم',
+      'patientDeclined': 'رفض المريض',
+      'couldNotComplete': 'تعذّر الإكمال',
+      'needHelp': 'أحتاج مساعدة',
+      'outcomeNote': 'ماذا حدث؟',
+      'noteRequired': 'أضف ملاحظة قصيرة ليعرف فريق الرعاية ما حدث.',
+      'saveOutcome': 'حفظ النتيجة',
+      'taskUpdated': 'تم تحديث المهمة.',
+      'unableToUpdateTask': 'تعذّر تحديث المهمة',
+      'finishVisit': 'إنهاء الزيارة',
+      'reviewAndFinish': 'المراجعة والإنهاء',
+      'visitSummary': 'ملخص الزيارة',
+      'visitCompleted': 'اكتملت الزيارة.',
+      'pendingTasksRemain': 'عالج جميع المهام المعلّقة قبل الإنهاء.',
+      'optionalSummaryNote': 'ملاحظة تسليم المناوبة (اختيارية)',
+      'noTasksForVisit': 'لا توجد مهام في هذه الزيارة بعد.',
+      'generateChecklistFirst':
+          'أنشئ قائمة مهام اليوم من سجل المريض ثم حدّث الصفحة.',
+
       // AI
       'aiAssistant': 'المساعد الذكي',
       'typeMessage': 'اكتب رسالة...',
@@ -450,8 +591,9 @@ class _AppLocalizationsDelegate
   const _AppLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) => AppLocalizations.supportedLocales
-      .any((l) => l.languageCode == locale.languageCode);
+  bool isSupported(Locale locale) => AppLocalizations.supportedLocales.any(
+        (l) => l.languageCode == locale.languageCode,
+      );
 
   @override
   Future<AppLocalizations> load(Locale locale) async =>

@@ -27,7 +27,7 @@ service cloud.firestore {
       return /databases/$(database)/documents/patients/$(patientId);
     }
 
-    function canAccessPatientData(patientData) {
+    function canAccessPatientData(patientId, patientData) {
       return isAuthenticated() &&
         (
           (
@@ -40,13 +40,23 @@ service cloud.firestore {
             currentUser().agencyId is string &&
             patientData.agencyId is string &&
             patientData.agencyId == currentUser().agencyId
+          ) ||
+          (
+            hasRole(['patient']) &&
+            currentUser().patientId is string &&
+            currentUser().patientId == patientId
+          ) ||
+          (
+            hasRole(['relative']) &&
+            currentUser().patientIds is list &&
+            patientId in currentUser().patientIds
           )
         );
     }
 
     function canAccessPatientById(patientId) {
       return exists(patientPath(patientId)) &&
-        canAccessPatientData(get(patientPath(patientId)).data);
+        canAccessPatientData(patientId, get(patientPath(patientId)).data);
     }
 
     function canReadAiQaLog(logData) {
@@ -79,7 +89,7 @@ service cloud.firestore {
     match /patients/{patientId} {
       // Use resource.data for patient document reads so list queries (dashboard)
       // can be authorized deterministically by Firestore Rules.
-      allow read: if canAccessPatientData(resource.data);
+      allow read: if canAccessPatientData(patientId, resource.data);
       allow write: if false;
 
       match /aiQaLogs/{logId} {
@@ -96,6 +106,12 @@ service cloud.firestore {
     match /procedureTemplates/{templateId} {
       allow read: if isAuthenticated();
       allow write: if hasRole(['admin', 'supervisor']);
+    }
+
+    match /visits/{visitId} {
+      allow read: if resource.data.patientId is string &&
+        canAccessPatientById(resource.data.patientId);
+      allow write: if false;
     }
 
     match /aiQaLogs/{logId} {

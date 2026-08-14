@@ -88,10 +88,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _signInDemo(String email) async {
+    _emailController.text = email;
+    _passwordController.text = 'Passw0rd!';
+    await _signIn();
+  }
+
   void _toggleLocale() {
     final current = ref.read(localeProvider);
     ref.read(localeProvider.notifier).setLocale(
-          current.languageCode == 'en' ? const Locale('ar') : const Locale('en'),
+          current.languageCode == 'en'
+              ? const Locale('ar')
+              : const Locale('en'),
         );
   }
 
@@ -213,8 +221,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 ),
                                 validator: (value) {
                                   final input = value?.trim() ?? '';
-                                  if (input.isEmpty) return l.emailRequired;
-                                  if (!input.contains('@')) return l.emailInvalid;
+                                  if (input.isEmpty) {
+                                    return l.emailRequired;
+                                  }
+                                  if (!input.contains('@')) {
+                                    return l.emailInvalid;
+                                  }
                                   return null;
                                 },
                               ),
@@ -237,7 +249,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                           : Icons.visibility_outlined,
                                     ),
                                     onPressed: () => setState(
-                                      () => _obscurePassword = !_obscurePassword,
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
                                     ),
                                   ),
                                 ),
@@ -320,8 +333,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                     ),
                                     child: Text(
                                       'or',
-                                      style: theme.textTheme.bodySmall
-                                          ?.copyWith(
+                                      style:
+                                          theme.textTheme.bodySmall?.copyWith(
                                         color: colorScheme.onSurfaceVariant,
                                       ),
                                     ),
@@ -340,6 +353,55 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                                 onPressed: _loading ? null : _signInWithGoogle,
                                 icon: const Icon(Icons.account_circle_outlined),
                                 label: Text(l.signInWithGoogle),
+                              ),
+                              const SizedBox(height: 20),
+                              Text(
+                                'Demo portal access',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  color: colorScheme.onSurface,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Choose a view to sign in with the local demo account.',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                              const SizedBox(height: 12),
+                              Row(
+                                children: <Widget>[
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: _loading
+                                          ? null
+                                          : () => _signInDemo(
+                                                'patient@hnas.local',
+                                              ),
+                                      icon: const Icon(
+                                        Icons.favorite_outline_rounded,
+                                      ),
+                                      label: const Text('Patient'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: OutlinedButton.icon(
+                                      onPressed: _loading
+                                          ? null
+                                          : () => _signInDemo(
+                                                'relative@hnas.local',
+                                              ),
+                                      icon: const Icon(
+                                        Icons.family_restroom_rounded,
+                                      ),
+                                      label: const Text('Relative'),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),
